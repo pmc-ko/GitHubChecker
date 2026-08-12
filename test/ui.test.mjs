@@ -14,7 +14,7 @@ const payload = {
   cached: false,
   ageSeconds: 0,
   settings: {
-    refreshSeconds: 0, // 自動更新のタイマーを動かさない（テストが終わらなくなるので）
+    refreshSeconds: 300, // 消費見積もりの計算に使う。タイマーは最後のテストで止める
     cacheSeconds: CONFIG.cacheSeconds,
     repos: CONFIG.repos.map((repo) => repo.nameWithOwner),
     disabledRepos: [],
@@ -58,6 +58,16 @@ test('進捗グラフ3枚が描かれる', () => {
   assert.ok(findAll(byId('chartLabel'), 'bar-row').length > 0);
   // 進捗率は件数と一致していること（バーと数字が食い違わない）
   assert.match(text(byId('chartMilestone')), /25%/);
+});
+
+test('API 残量のドーナツと調整口が出る', () => {
+  const api = byId('chartApi');
+  assert.equal(findAll(api, 'donut').length, 1);
+  assert.match(text(api), /98%/, '4900/5000 = 98%');
+  assert.match(text(api), /残 4,900 \/ 5,000/);
+  // 1回 24点 × 3600/300 = 12回 → 288点/時
+  assert.match(text(api), /288/);
+  assert.equal(findAll(api, 'api-controls').length, 1, '更新間隔と Issue 取得の切り替えがある');
 });
 
 test('Issue連携の軸で3列に分かれる', async () => {
@@ -127,4 +137,25 @@ test('行を開くと詳細が出る（PR / Issue の両方）', async () => {
 
 test('エラーバナーが出ていない', () => {
   assert.equal(byId('banner').hidden, true, text(byId('banner')));
+});
+
+test('0件の分岐で "null" や "undefined" が画面に出ない', async () => {
+  byId('search').value = 'zzz-該当しない-zzz';
+  fire(byId('search'), 'input');
+  await wait();
+
+  const charts = [byId('chartLink'), byId('chartMilestone'), byId('chartLabel'), byId('chartApi')].map(text).join('\n');
+  assert.doesNotMatch(charts, /null|undefined/, charts);
+  assert.match(text(list), /ありません/);
+
+  byId('search').value = '';
+  fire(byId('search'), 'input');
+  await wait();
+  assert.equal(findAll(list, 'pr').length, itemCount);
+});
+
+// app.js が仕掛けた自動更新タイマーを止める（活きたハンドルが残ると終わらない）。必ず最後に置く
+test('後片付け: 自動更新を止める', () => {
+  byId('autoRefresh').checked = false;
+  fire(byId('autoRefresh'), 'change');
 });

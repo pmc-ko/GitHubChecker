@@ -156,6 +156,15 @@ async function getDashboard({ refresh = false } = {}) {
   return { ...payload, cached: false, ageSeconds: 0 };
 }
 
+/** 画面から来た数値の検証。黙って丸めず、範囲外はエラーにする */
+function intInRange(value, min, max, name) {
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < min || number > max) {
+    throw new Error(`${name} は ${min}〜${max} の整数で送ってください`);
+  }
+  return number;
+}
+
 function publicSettings(config) {
   return {
     refreshSeconds: config.refreshSeconds,
@@ -273,6 +282,30 @@ const server = createServer(async (req, res) => {
       console.log(`監視対象を更新: ${patch.repos.join(', ') || '(なし)'}`);
       if (patch.disabledRepos?.length) console.log(`監視を止めた: ${patch.disabledRepos.join(', ')}`);
       return sendJson(res, 200, { repos: patch.repos, disabledRepos: patch.disabledRepos ?? [] });
+    } catch (err) {
+      return sendJson(res, 400, { error: err.message });
+    }
+  }
+
+  // 取得の頻度・範囲を画面から変える口（API 消費を絞るため）。書き込み条件は repos と同じ3点
+  if (url.pathname === '/api/config/settings') {
+    if (req.method !== 'POST') return sendJson(res, 405, { error: 'POST を使ってください' });
+    if (!isLocalRequest(req)) return sendJson(res, 403, { error: 'ローカルからのみ変更できます' });
+    try {
+      const body = await readJsonBody(req);
+      const patch = {};
+      if (body.refreshSeconds !== undefined) patch.refreshSeconds = intInRange(body.refreshSeconds, 0, 3600, 'refreshSeconds');
+      if (body.cacheSeconds !== undefined) patch.cacheSeconds = intInRange(body.cacheSeconds, 10, 3600, 'cacheSeconds');
+      if (body.includeIssues !== undefined) {
+        if (typeof body.includeIssues !== 'boolean') throw new Error('includeIssues は true / false で送ってください');
+        patch.includeIssues = body.includeIssues;
+      }
+      if (!Object.keys(patch).length) throw new Error('変更する項目がありません');
+
+      const config = await saveConfigPatch(patch);
+      cache = null; // 取得範囲が変わるので次回は取り直す
+      console.log(`設定を更新: ${JSON.stringify(patch)}`);
+      return sendJson(res, 200, { settings: publicSettings(config) });
     } catch (err) {
       return sendJson(res, 400, { error: err.message });
     }

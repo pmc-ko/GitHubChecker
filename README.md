@@ -244,6 +244,7 @@ git tag v0.2.0 && git push origin v0.2.0   # これでリリースが作られ�
 | --- | --- | --- |
 | GET | `/api/dashboard` | PR一覧と集計。`?refresh=1` でキャッシュ無視 |
 | POST | `/api/config/repos` | `{"repos":[候補すべて], "disabledRepos":[止めるもの]}` を保存（`disabledRepos` 省略時は全部有効） |
+| POST | `/api/config/settings` | `{"refreshSeconds":300,"cacheSeconds":120,"includeIssues":true}` の一部を保存（API 消費の調整用） |
 | GET | `/api/ping` | 二重起動の判定用（`{app, pid}`） |
 | POST | `/api/shutdown` | サーバを終了（`pr-monitor-stop.cmd` が使う） |
 
@@ -255,15 +256,27 @@ GitHub GraphQL は **5000点/時**。点数は「**要求したノード数**」
 `maxPrsPerRepo` / `maxIssuesPerRepo` で一気に増える。**1回の取得コストはフッタに「今回 n点」**として出る。
 
 ```
-1時間の消費 ≒ 今回のコスト × 3600 / refreshSeconds
+1時間の消費 ≒ 1回のコスト × 3600 / refreshSeconds
 ```
 
-既定値（`cacheSeconds` 120 / `refreshSeconds` 300）は、6リポジトリ・PR約30件・Issue約100件で
-上限に収まるように決めてある。**リポジトリを増やしたら refreshSeconds も増やす**。
-残量が少なくなると画面上部に警告が出る（0 になると取得自体が失敗し、リセットまで表示できない）。
+**「進捗」パネルの「GitHub API の残量」に円グラフで残量が出る。** 残量・リセット時刻・
+「1回 n点 × 最大 m回/時 = 最大 x点/時」まで数字で出るので、そこで足りるかを判断できる。
+残量が 25% を切ると黄色、10% を切ると赤（`⚠` 付き）になり、少ないときは画面上部にも警告が出る。
 
-節約したいときは `includeIssues: false`（Issue とマイルストンを取らない）、
-`maxPrsPerRepo` / `maxIssuesPerRepo` を下げる、監視リポジトリのチェックを外す、のいずれか。
+**その場で調整できる**（同じパネルの下段。`config.json` が書き換わる）。
+
+| 調整 | 効果 |
+| --- | --- |
+| 更新間隔（1分〜30分 / 自動更新しない） | 1時間の消費がそのまま反比例する |
+| 「Issue も取得」を外す（= `includeIssues: false`） | Issue とマイルストンの問い合わせをやめる |
+| 監視リポジトリを OFF にする（監視リポジトリパネル） | そのリポジトリを取得しない |
+| `maxPrsPerRepo` / `maxIssuesPerRepo` を下げる（`config.json`） | 1回のコストが下がる |
+
+上部の**リポジトリ絞り込みチェックは表示だけ**で、消費は減らない（取得は続く）。
+
+実測の目安: 6リポジトリ・PR 28件・Issue 88件・マイルストン 6件で **1回 24点**
+（`refreshSeconds` 300 なら 最大 288点/時）。既定値はこの規模で収まるように決めてある。
+0 になると取得自体が失敗し、リセットまで表示できない。
 
 ## 既知の癖
 

@@ -32,7 +32,9 @@ PR 監視ダッシュボード。**使いながら口頭で改修指示が飛ん
 | 軸の並び順・0件グループの扱い | `public/app.js` | 各 DIMENSION の `order` / `alwaysShow`、`groupBy()` |
 | カードの見た目・情報量 | `public/app.js` | `renderCard()`（2段構成: `statusIcons()` + `ciMeterInline()` / タイトル + `metaChipList()`） |
 | アイコンを増やす・変える | `tools/make-icons.mjs` の `ICONS` → `npm run icons` | 使う側は定義テーブルで名前を書くだけ |
-| 進捗グラフ（3枚）の内容 | `public/app.js` | `renderLinkChart()` / `renderMilestoneChart()` / `renderLabelChart()` |
+| 進捗グラフ（4枚）の内容 | `public/app.js` | `renderLinkChart()` / `renderMilestoneChart()` / `renderLabelChart()` / `renderApiChart()` |
+| API 残量の見せ方・調整の選択肢 | `public/app.js` | `renderApiChart()` と `REFRESH_CHOICES`（保存は `saveSettings()`） |
+| 画面から変えられる設定を増やす | `src/server.mjs` の `POST /api/config/settings` | `intInRange()` で検証してから `saveConfigPatch()` |
 | グラフの系列色 | `public/style.css` | `--series-1..3`（状態色とは別枠。変えたら CVD 判定をやり直す） |
 | Issue / マイルストンの取得項目 | `src/github.mjs` | `ISSUE_QUERY`（PR 側の紐づきは `closingIssuesReferences`） |
 | Issue と PR の紐づけ方 | `src/summarize.mjs` | `buildDashboard()` の `linked`（紐づいた Issue は一覧に出さない） |
@@ -81,7 +83,9 @@ npm run app                         # 見た目を変えたら実アプリでも
 - ライセンスは **AGPL-3.0-only**。ファイルを増やすときも同じ扱い。取り込むコードのライセンスに注意
   （アイコンは Material Symbols = Apache-2.0、`public/icons.js` の冒頭に出典を書いてある）。
 - **GraphQL のレート制限は「要求ノード数」で決まる**（5000点/時）。`first:` を増やすと掛け算で効く。
-  1回のコストはフッタの「今回 n点」に出る。`config.json` の `refreshSeconds` との掛け算で見積もること。
+  1回のコストはフッタの「今回 n点」と「進捗」パネルの円グラフに出る（`rateLimit.fetchCost`）。
+  実測: 6リポジトリ / PR 28 / Issue 88 で 24点。`refreshSeconds` との掛け算で見積もること。
+  クエリを増やすときは**その場で1回のコストを測る**（`?refresh=1` を叩いて fetchCost を見る）。
 
 - 認証は `gh auth token` → 環境変数 `GITHUB_TOKEN`/`GH_TOKEN` の順で解決（`src/token.mjs`）。
 - `reviewDecision` はブランチ保護が未設定だと `null`。実績から導くフォールバックが入っている。

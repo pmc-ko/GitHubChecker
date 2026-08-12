@@ -41,7 +41,11 @@ export function createElement(tag) {
       for (const item of items) node.children.push(item);
     },
     replaceChildren(...items) {
-      node.children = items.filter((item) => item !== null && item !== undefined);
+      // 本物の DOM は null を文字列 "null" として挿入する。それを再現しないと
+      // 「画面に null と出る」バグをテストで拾えない（app.js 側は setChildren() を使う）
+      node.children = items.map((item) =>
+        item === null || item === undefined ? { tag: '#text', textContent: String(item), children: [] } : item
+      );
     },
     addEventListener(type, handler) {
       (node.listeners[type] ??= []).push(handler);

@@ -214,7 +214,7 @@ const dom = {};
 for (const id of [
   'viewer', 'fetched', 'refresh', 'autoRefresh', 'autoRefreshLabel', 'theme', 'viewToggle',
   'banner', 'kpis', 'bucketFilter', 'repoFilter', 'search', 'mineOnly', 'hideBots', 'hideDrafts', 'hideIssues',
-  'progressPanel', 'progressSummary', 'chartLink', 'chartMilestone', 'chartLabel',
+  'progressPanel', 'progressSummary', 'chartLink', 'chartMilestone', 'chartLabel', 'chartApi',
   'expandAll', 'list', 'footerInfo', 'pivotControls', 'colDim', 'rowDim', 'swapDims',
   'repoPanel', 'repoSummary', 'repoToggles', 'repoText', 'repoSave', 'repoReset', 'repoStatus',
 ]) {
@@ -238,6 +238,14 @@ function el(tag, props = {}, children = []) {
     node.append(typeof child === 'string' ? document.createTextNode(child) : child);
   }
   return node;
+}
+
+/**
+ * 子要素を差し替える。**null / undefined を必ず落とす**こと。
+ * 素の replaceChildren(null) は文字列 "null" を挿入してしまうため、条件付きの子は必ずこれを通す。
+ */
+function setChildren(node, children) {
+  node.replaceChildren(...[].concat(children).filter((child) => child !== null && child !== undefined && child !== false));
 }
 
 const relativeFormatter = new Intl.RelativeTimeFormat('ja', { numeric: 'auto' });
@@ -577,6 +585,24 @@ async function saveRepos(lines) {
   }
 }
 
+/** 取得の頻度・範囲を保存する（config.json が書き換わる）。API 消費を絞るための口 */
+async function saveSettings(patch) {
+  try {
+    const response = await fetch('/api/config/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    const payload = await response.json();
+    if (!response.ok || payload.error) throw new Error(payload.error ?? `HTTP ${response.status}`);
+    // 反映は次の取得から。取得範囲が変わるのですぐ取り直す
+    await load({ refresh: patch.includeIssues !== undefined });
+  } catch (err) {
+    state.error = `設定を保存できませんでした: ${err.message}`;
+    render();
+  }
+}
+
 /* ---------------- 描画 ---------------- */
 
 function renderSkeleton() {
@@ -832,6 +858,124 @@ function renderProgress(visible) {
   renderLinkChart(visible);
   renderMilestoneChart();
   renderLabelChart(visible);
+  renderApiChart();
+}
+
+/** 更新間隔の選択肢（秒）。API 消費は「1回のコスト × 3600/間隔」で決まる */
+const REFRESH_CHOICES = [
+  { value: 60, label: '1分' },
+  { value: 180, label: '3分' },
+  { value: 300, label: '5分' },
+  { value: 600, label: '10分' },
+  { value: 1800, label: '30分' },
+  { value: 0, label: '自動更新しない' },
+];
+
+/**
+ * GitHub API の残量（ドーナツ）と、1時間あたりの消費見積もり、その調整口。
+ * 数値は必ず文字でも出す。色だけで「危ない」を伝えないよう、少ないときはアイコン+文字も添える。
+ */
+function renderApiChart() {
+  const rate = state.data?.rateLimit;
+  const settings = state.data?.settings ?? {};
+  const refresh = Number(settings.refreshSeconds ?? 0);
+  const cost = rate?.fetchCost ?? null;
+  const perHour = cost !== null && refresh > 0 ? cost * Math.floor(3600 / refresh) : null;
+
+  const ratio = rate ? Math.max(0, Math.min(1, rate.remaining / rate.limit)) : 0;
+  const tone = ratio <= 0.1 ? 'critical' : ratio <= 0.25 ? 'warning' : 'bar';
+
+  setChildren(dom.chartApi, [
+    el('h2', { class: 'chart-title', text: 'GitHub API の残量（GraphQL）' }),
+    el('p', { class: 'chart-note', text: '1時間あたり 5000点。点数は「要求したノード数」で決まる' }),
+    rate
+      ? el('div', { class: 'api-row' }, [
+          el('div', { class: 'donut-wrap', title: `残 ${rate.remaining} / ${rate.limit}` }, [
+            donut(ratio, tone),
+            el('span', { class: 'donut-center', text: `${Math.round(ratio * 100)}%` }),
+          ]),
+          el('div', { class: 'api-facts' }, [
+            el('p', {}, [
+              tone === 'bar'
+                ? null
+                : el('span', { class: 'status-icon', dataset: { tone: tone === 'critical' ? 'critical' : 'warning' } }, [
+                    icon('warning', { size: 14 }),
+                  ]),
+              el('span', { class: 'api-value', text: `残 ${rate.remaining.toLocaleString('ja-JP')} / ${rate.limit.toLocaleString('ja-JP')}` }),
+            ]),
+            el('p', { class: 'chart-note', text: `リセット ${absoluteTime(rate.resetAt)}（${relativeTime(rate.resetAt)}）` }),
+            el('p', {
+              class: 'chart-note',
+              text:
+                cost === null
+                  ? '取得コストは次の取得で分かる'
+                  : perHour === null
+                    ? `1回の取得 ${cost}点（自動更新オフなので手動ぶんだけ）`
+                    : `1回の取得 ${cost}点 × 最大 ${Math.floor(3600 / refresh)}回/時 = 最大 ${perHour.toLocaleString('ja-JP')}点/時`,
+            }),
+          ]),
+        ])
+      : el('p', { class: 'chart-note', text: '残量はまだ分かりません（次の取得で出ます）。' }),
+    // ここが「調整する方法」。config.json を直接書き換えるのと同じ効果
+    el('div', { class: 'api-controls' }, [
+      el('label', { class: 'toggle' }, [
+        el('span', { text: '更新間隔' }),
+        (() => {
+          const select = el('select', {
+            class: 'control',
+            'aria-label': '自動更新の間隔',
+            onchange: (event) => saveSettings({ refreshSeconds: Number(event.target.value) }),
+          });
+          select.replaceChildren(
+            ...REFRESH_CHOICES.map((choice) =>
+              el('option', { value: String(choice.value), text: choice.label, selected: choice.value === refresh })
+            )
+          );
+          select.value = String(refresh);
+          return select;
+        })(),
+      ]),
+      (() => {
+        const box = el('input', {
+          type: 'checkbox',
+          onchange: (event) => saveSettings({ includeIssues: Boolean(event.target.checked) }),
+        });
+        box.checked = settings.includeIssues !== false;
+        return el('label', { class: 'toggle', title: 'Issue とマイルストンを取らなければ消費が減る' }, [
+          box,
+          el('span', { text: 'Issue も取得' }),
+        ]);
+      })(),
+      el('span', { class: 'chart-note', text: '監視リポジトリを減らすのも効く（上のチェックは表示だけで消費は減らない）' }),
+    ]),
+  ]);
+}
+
+/** 円グラフ（ドーナツ）1つ。0〜1 の比率を描く */
+function donut(ratio, tone) {
+  const radius = 26;
+  const circumference = 2 * Math.PI * radius;
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('class', 'donut');
+  svg.setAttribute('viewBox', '0 0 64 64');
+  svg.setAttribute('width', '64');
+  svg.setAttribute('height', '64');
+  svg.setAttribute('aria-hidden', 'true');
+
+  const circle = (className, dash) => {
+    const node = document.createElementNS(SVG_NS, 'circle');
+    node.setAttribute('class', className);
+    node.setAttribute('cx', '32');
+    node.setAttribute('cy', '32');
+    node.setAttribute('r', String(radius));
+    if (dash) node.setAttribute('stroke-dasharray', dash);
+    return node;
+  };
+
+  const value = circle('donut-value', `${(circumference * ratio).toFixed(1)} ${circumference.toFixed(1)}`);
+  value.setAttribute('data-tone', tone);
+  svg.append(circle('donut-track'), value);
+  return svg;
 }
 
 /** 3パターンの内訳を数える。順番は LINK_ORDER 固定（色と対応させるため） */
@@ -865,7 +1009,7 @@ function renderLinkChart(items) {
   const parts = linkCounts(items);
   const total = parts.reduce((sum, part) => sum + part.count, 0);
 
-  dom.chartLink.replaceChildren(
+  setChildren(dom.chartLink, [
     el('h2', { class: 'chart-title', text: 'Issue連携の内訳' }),
     el('p', { class: 'chart-note', text: `表示中の ${total} 件。Issueのみ＝未着手、Issue+PR＝進行中。` }),
     total
@@ -884,15 +1028,15 @@ function renderLinkChart(items) {
           el('span', { class: 'legend-value', text: `${part.count}（${percent(part.count, total)}%）` }),
         ])
       )
-    )
-  );
+    ),
+  ]);
 }
 
 function renderMilestoneChart() {
   const shown = shownRepos();
   const milestones = (state.data?.milestones ?? []).filter((milestone) => shown.has(milestone.repo));
 
-  dom.chartMilestone.replaceChildren(
+  setChildren(dom.chartMilestone, [
     el('h2', { class: 'chart-title', text: 'マイルストン進捗' }),
     el('p', {
       class: 'chart-note',
@@ -900,8 +1044,8 @@ function renderMilestoneChart() {
     }),
     milestones.length
       ? el('div', { class: 'bar-rows' }, milestones.map(milestoneRow))
-      : el('p', { class: 'chart-note', text: 'オープンなマイルストンはありません。' })
-  );
+      : el('p', { class: 'chart-note', text: 'オープンなマイルストンはありません。' }),
+  ]);
 }
 
 function milestoneRow(milestone) {
@@ -947,7 +1091,7 @@ function renderLabelChart(items) {
   const rest = rows.slice(LABEL_ROWS);
   const max = top[0]?.total ?? 1;
 
-  dom.chartLabel.replaceChildren(
+  setChildren(dom.chartLabel, [
     el('h2', { class: 'chart-title', text: 'ラベル別（表示中）' }),
     el('p', { class: 'chart-note', text: '色は Issue連携の内訳と同じ。1件が複数ラベルを持つ場合は各ラベルで数える。' }),
     top.length
@@ -977,8 +1121,8 @@ function renderLabelChart(items) {
           class: 'chart-note',
           text: `他 ${rest.length} ラベル（${rest.reduce((sum, entry) => sum + entry.total, 0)} 件ぶん）は省略`,
         })
-      : null
-  );
+      : null,
+  ]);
 }
 
 function renderBucketFilter() {
