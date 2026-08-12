@@ -167,6 +167,9 @@ function intInRange(value, min, max, name) {
 
 function publicSettings(config) {
   return {
+    port: config.port,
+    maxPrsPerRepo: config.maxPrsPerRepo,
+    maxIssuesPerRepo: config.maxIssuesPerRepo,
     refreshSeconds: config.refreshSeconds,
     cacheSeconds: config.cacheSeconds,
     repos: config.repos.map((repo) => repo.nameWithOwner),
@@ -296,18 +299,47 @@ const server = createServer(async (req, res) => {
     try {
       const body = await readJsonBody(req);
       const patch = {};
-      if (body.refreshSeconds !== undefined) patch.refreshSeconds = intInRange(body.refreshSeconds, 0, 3600, 'refreshSeconds');
-      if (body.cacheSeconds !== undefined) patch.cacheSeconds = intInRange(body.cacheSeconds, 10, 3600, 'cacheSeconds');
-      if (body.includeIssues !== undefined) {
-        if (typeof body.includeIssues !== 'boolean') throw new Error('includeIssues は true / false で送ってください');
-        patch.includeIssues = body.includeIssues;
+      // 数値: 範囲を決めてから通す（黙って丸めない）
+      const numbers = {
+        refreshSeconds: [0, 3600],
+        cacheSeconds: [10, 3600],
+        maxPrsPerRepo: [1, 100],
+        maxIssuesPerRepo: [0, 100],
+        port: [1024, 65535],
+      };
+      for (const [key, [min, max]] of Object.entries(numbers)) {
+        if (body[key] !== undefined) patch[key] = intInRange(body[key], min, max, key);
+      }
+      // 真偽値
+      for (const key of ['includeIssues', 'excludeDrafts']) {
+        if (body[key] !== undefined) {
+          if (typeof body[key] !== 'boolean') throw new Error(`${key} は true / false で送ってください`);
+          patch[key] = body[key];
+        }
+      }
+      // 除外作成者: GitHub のログイン名として通る文字だけ許す（bot の [] も含む）
+      if (body.excludeAuthors !== undefined) {
+        if (!Array.isArray(body.excludeAuthors)) throw new Error('excludeAuthors は配列で送ってください');
+        if (body.excludeAuthors.length > 50) throw new Error('excludeAuthors は 50 個までにしてください');
+        patch.excludeAuthors = body.excludeAuthors
+          .map((entry) => String(entry).trim())
+          .filter(Boolean)
+          .map((entry) => {
+            if (!/^[A-Za-z0-9](?:[A-Za-z0-9._-]*)(?:\[bot\])?$/.test(entry)) {
+              throw new Error(`作成者の指定が不正です: "${entry}"`);
+            }
+            return entry;
+          })
+          .filter((entry, index, all) => all.indexOf(entry) === index);
       }
       if (!Object.keys(patch).length) throw new Error('変更する項目がありません');
 
       const config = await saveConfigPatch(patch);
       cache = null; // 取得範囲が変わるので次回は取り直す
       console.log(`設定を更新: ${JSON.stringify(patch)}`);
-      return sendJson(res, 200, { settings: publicSettings(config) });
+      // port は待ち受け中のサーバには効かない（再起動が必要）ことを画面に伝える
+      const needsRestart = patch.port !== undefined && patch.port !== port;
+      return sendJson(res, 200, { settings: publicSettings(config), needsRestart });
     } catch (err) {
       return sendJson(res, 400, { error: err.message });
     }

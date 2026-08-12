@@ -1017,6 +1017,59 @@ a:hover {
   padding: 10px 12px 12px;
 }
 
+/* 取得の設定（1項目 = ラベル + 説明 + コントロール） */
+.setting-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 8px 20px;
+}
+
+.setting {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.setting-label {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.setting-hint {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.setting-input {
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.setting-number {
+  width: 76px;
+  font-variant-numeric: tabular-nums;
+}
+.setting-text {
+  width: 180px;
+}
+
+/* API 残量カードの中では説明を省いて詰める */
+.api-controls .setting {
+  padding: 0;
+  border-bottom: none;
+}
+.api-controls .setting-hint {
+  display: none;
+}
+
 /* 設定ファイルの場所。選択してコピーできるように user-select は切らない */
 .panel-path {
   margin: 8px 0 0;

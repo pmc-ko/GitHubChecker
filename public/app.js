@@ -197,6 +197,8 @@ const state = {
   /** 監視 OFF にしたリポジトリの未保存状態（null = サーバの値を表示中） */
   repoDisabledDraft: null,
   repoStatus: '',
+  /** 「取得の設定」パネルの保存結果メッセージ */
+  settingStatus: '',
   filters: {
     buckets: BUCKETS.map((b) => b.key),
     /** 表示するリポジトリ。空配列 = 全部（チェックは全部入った状態で描く） */
@@ -217,6 +219,7 @@ for (const id of [
   'progressPanel', 'progressSummary', 'chartLink', 'chartMilestone', 'chartLabel', 'chartApi',
   'expandAll', 'list', 'footerInfo', 'pivotControls', 'colDim', 'rowDim', 'swapDims',
   'repoPanel', 'repoSummary', 'repoToggles', 'repoText', 'repoSave', 'repoReset', 'repoStatus', 'configPath',
+  'settingsPanel', 'settingFields', 'settingStatus',
 ]) {
   dom[id] = document.getElementById(id);
 }
@@ -586,7 +589,9 @@ async function saveRepos(lines) {
 }
 
 /** 取得の頻度・範囲を保存する（config.json が書き換わる）。API 消費を絞るための口 */
-async function saveSettings(patch) {
+async function saveSettings(patch, field = null) {
+  state.settingStatus = '保存中…';
+  render();
   try {
     const response = await fetch('/api/config/settings', {
       method: 'POST',
@@ -595,10 +600,18 @@ async function saveSettings(patch) {
     });
     const payload = await response.json();
     if (!response.ok || payload.error) throw new Error(payload.error ?? `HTTP ${response.status}`);
-    // 反映は次の取得から。取得範囲が変わるのですぐ取り直す
-    await load({ refresh: patch.includeIssues !== undefined });
+
+    state.settingStatus = payload.needsRestart
+      ? '保存しました（再起動後に有効になります）'
+      : `保存しました（${absoluteTime(new Date().toISOString())}）`;
+    // 取得範囲が変わるものは取り直す。間隔だけの変更なら次の自動更新から効く
+    const refetch = ['includeIssues', 'excludeDrafts', 'excludeAuthors', 'maxPrsPerRepo', 'maxIssuesPerRepo'].some(
+      (key) => patch[key] !== undefined
+    );
+    await load({ refresh: refetch });
   } catch (err) {
-    state.error = `設定を保存できませんでした: ${err.message}`;
+    state.settingStatus = `保存できませんでした: ${err.message}`;
+    if (field) state.settingStatus += `（${field.label}）`;
     render();
   }
 }
@@ -617,6 +630,7 @@ function render() {
   renderPivotControls();
   renderRepoFilter();
   renderRepoEditor();
+  renderSettingsPanel();
   const visible = applyFilters(allItems());
   renderKpis();
   renderProgress(visible);
@@ -865,6 +879,25 @@ function renderProgress(visible) {
   renderApiChart();
 }
 
+/**
+ * 画面から変えられる設定。ここに1行足すと「取得の設定」パネルに出る。
+ * **サーバ側（POST /api/config/settings）の検証範囲と必ず合わせる**こと。
+ *   type: 'choice' | 'number' | 'boolean' | 'list'
+ *   restart: true は保存しても再起動まで効かないもの
+ */
+const SETTING_FIELDS = [
+  { key: 'refreshSeconds', label: '自動更新の間隔', type: 'choice', hint: '短くすると API 消費が増える' },
+  { key: 'cacheSeconds', label: 'キャッシュ', type: 'number', min: 10, max: 3600, unit: '秒', hint: 'この秒数以内の再表示は API を叩かない' },
+  { key: 'includeIssues', label: 'Issue も取得', type: 'boolean', hint: '外すと Issue とマイルストンを問い合わせない' },
+  { key: 'maxPrsPerRepo', label: 'PR の取得上限', type: 'number', min: 1, max: 100, unit: '件', hint: '1リポジトリあたり。下げると1回のコストが減る' },
+  { key: 'maxIssuesPerRepo', label: 'Issue の取得上限', type: 'number', min: 0, max: 100, unit: '件', hint: '1リポジトリあたり' },
+  { key: 'excludeDrafts', label: 'Draft を取得しない', type: 'boolean', hint: '一覧の「Draft除外」は表示だけ。こちらは取得自体をやめる' },
+  { key: 'excludeAuthors', label: '除外する作成者', type: 'list', hint: 'カンマ区切り。例: dependabot[bot]' },
+  { key: 'port', label: 'ポート', type: 'number', min: 1024, max: 65535, restart: true, hint: '再起動後に有効' },
+];
+
+const settingField = (key) => SETTING_FIELDS.find((field) => field.key === key);
+
 /** 更新間隔の選択肢（秒）。API 消費は「1回のコスト × 3600/間隔」で決まる */
 const REFRESH_CHOICES = [
   { value: 60, label: '1分' },
@@ -920,39 +953,74 @@ function renderApiChart() {
           ]),
         ])
       : el('p', { class: 'chart-note', text: '残量はまだ分かりません（次の取得で出ます）。' }),
-    // ここが「調整する方法」。config.json を直接書き換えるのと同じ効果
+    // ここが「調整する方法」。効きの大きい2つだけ置き、残りは「取得の設定」パネルに出す
     el('div', { class: 'api-controls' }, [
-      el('label', { class: 'toggle' }, [
-        el('span', { text: '更新間隔' }),
-        (() => {
-          const select = el('select', {
-            class: 'control',
-            'aria-label': '自動更新の間隔',
-            onchange: (event) => saveSettings({ refreshSeconds: Number(event.target.value) }),
-          });
-          select.replaceChildren(
-            ...REFRESH_CHOICES.map((choice) =>
-              el('option', { value: String(choice.value), text: choice.label, selected: choice.value === refresh })
-            )
-          );
-          select.value = String(refresh);
-          return select;
-        })(),
-      ]),
-      (() => {
-        const box = el('input', {
-          type: 'checkbox',
-          onchange: (event) => saveSettings({ includeIssues: Boolean(event.target.checked) }),
-        });
-        box.checked = settings.includeIssues !== false;
-        return el('label', { class: 'toggle', title: 'Issue とマイルストンを取らなければ消費が減る' }, [
-          box,
-          el('span', { text: 'Issue も取得' }),
-        ]);
-      })(),
-      el('span', { class: 'chart-note', text: '監視リポジトリを減らすのも効く（上のチェックは表示だけで消費は減らない）' }),
+      settingControl(settingField('refreshSeconds')),
+      settingControl(settingField('includeIssues')),
+      el('span', { class: 'chart-note', text: '残りは下の「取得の設定」から。監視リポジトリを減らすのも効く' }),
     ]),
   ]);
+}
+
+/**
+ * 設定1項目のコントロール。定義（SETTING_FIELDS）から作るので、
+ * 「取得の設定」パネルと API 残量カードで同じものを使える。
+ */
+function settingControl(field) {
+  const settings = state.data?.settings ?? {};
+  const value = settings[field.key];
+  const commit = (next) => saveSettings({ [field.key]: next }, field);
+
+  let control;
+  if (field.type === 'boolean') {
+    control = el('input', { type: 'checkbox', onchange: (event) => commit(Boolean(event.target.checked)) });
+    control.checked = value !== false;
+  } else if (field.type === 'choice') {
+    control = el('select', { class: 'control', onchange: (event) => commit(Number(event.target.value)) });
+    control.replaceChildren(
+      ...REFRESH_CHOICES.map((choice) =>
+        el('option', { value: String(choice.value), text: choice.label, selected: choice.value === Number(value) })
+      )
+    );
+    control.value = String(Number(value ?? 0));
+  } else if (field.type === 'list') {
+    control = el('input', {
+      type: 'text',
+      class: 'control setting-text',
+      placeholder: 'dependabot[bot], renovate[bot]',
+      // 入力中は保存しない（確定＝Enter か フォーカスを外したとき）
+      onchange: (event) =>
+        commit(
+          String(event.target.value)
+            .split(/[,\s]+/)
+            .map((entry) => entry.trim())
+            .filter(Boolean)
+        ),
+    });
+    control.value = (value ?? []).join(', ');
+  } else {
+    control = el('input', {
+      type: 'number',
+      class: 'control setting-number',
+      min: String(field.min),
+      max: String(field.max),
+      onchange: (event) => commit(Number(event.target.value)),
+    });
+    control.value = String(value ?? '');
+  }
+
+  return el('label', { class: 'setting', title: field.hint ?? field.label }, [
+    el('span', { class: 'setting-label' }, [
+      el('span', { text: field.label }),
+      field.hint ? el('span', { class: 'setting-hint', text: field.hint }) : null,
+    ]),
+    el('span', { class: 'setting-input' }, [control, field.unit ? el('span', { class: 'setting-unit', text: field.unit }) : null]),
+  ]);
+}
+
+function renderSettingsPanel() {
+  setChildren(dom.settingFields, SETTING_FIELDS.map(settingControl));
+  dom.settingStatus.textContent = state.settingStatus;
 }
 
 /** 円グラフ（ドーナツ）1つ。0〜1 の比率を描く */

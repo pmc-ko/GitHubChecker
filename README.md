@@ -74,13 +74,22 @@ npm run app:icon     # electron/icon.png と icon.ico を描き直す
 cp config.example.json config.json
 ```
 
-**置き場所は使い方で変わる。** 画面の「監視リポジトリ」パネル下部に**実際のパスが出る**ので、
+**そもそも `config.json` を手で編集する必要はない。** 監視リポジトリは「監視リポジトリ」パネル、
+取得に関わる設定は**「取得の設定」パネル**から変えられる（変更するとその場で保存される）。
+
+| パネル | 変えられるもの |
+| --- | --- |
+| 監視リポジトリ | 候補の追加・削除、監視の ON/OFF（`repos` / `disabledRepos`） |
+| 取得の設定 | 自動更新の間隔、キャッシュ、Issue も取得、PR/Issue の取得上限、Draft を取得しない、除外する作成者、ポート |
+
+**置き場所**は使い方で変わる。画面の「監視リポジトリ」パネル下部に**実際のパスが出る**ので、
 迷ったらそこを見る（アプリ版はトレイの「設定ファイルを開く」からも開ける）。
 
 | 使い方 | 場所 |
 | --- | --- |
 | ブラウザ版 / `npm run app`（開発） | リポジトリ直下の `config.json` |
-| **exe 版（`npm run app:package` / Release の zip）** | `%APPDATA%\github-pr-checker\config.json`（初回起動時に雛形を作る） |
+| **exe 版（Release の zip）** | **`PRMonitor.exe` と同じフォルダ**（初回起動時に雛形を作る） |
+| exe を書き込めない場所に置いた場合（Program Files 等） | `%APPDATA%\github-pr-checker\config.json` に退避 |
 
 exe の中（`resources\app`）には置かない。アプリを差し替えても設定が消えず、書き込み権限の
 問題も起きないようにするため。場所を明示したいときは環境変数 `PR_MONITOR_CONFIG` で指定できる。

@@ -13,7 +13,7 @@
 
 import { app, BrowserWindow, Menu, Notification, Tray, dialog, nativeImage, shell } from 'electron';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { ensureServer, stopServer } from './server-process.mjs';
@@ -25,12 +25,28 @@ const ICON_PATH = join(HERE, 'icon.png');
 const BOUNDS_PATH = join(app.getPath('userData'), 'window.json');
 
 /**
- * 設定ファイルの場所。
- * パッケージ版はアプリの中（resources\app）に置くと見つけられず書き込めないので、
- * ユーザーのデータフォルダに置く。開発中（npm run app）はリポジトリ直下のものを共有して、
- * ブラウザ版（pr-monitor.cmd）と同じ設定を見る。
+ * 設定ファイルの場所。触りやすさ優先で次の順に決める。
+ *   1. 開発中（npm run app）      … リポジトリ直下（ブラウザ版と同じものを見る）
+ *   2. exe 版で exe の隣が書ける   … PRMonitor.exe と同じフォルダ（zip を展開しただけの持ち運び用途）
+ *   3. 書けない場所に置かれた場合  … %APPDATA%\github-pr-checker\（Program Files 等に入れたとき）
+ * アプリの中（resources\app）には置かない。見つけられないし、差し替えで消えるため。
  */
-const CONFIG_PATH = app.isPackaged ? join(app.getPath('userData'), 'config.json') : join(HERE, '..', 'config.json');
+function resolveConfigPath() {
+  if (!app.isPackaged) return join(HERE, '..', 'config.json');
+
+  const besideExe = join(dirname(process.execPath), 'config.json');
+  try {
+    // 実際に書けるか試す（Windows の ACL は access チェックだと当てにならない）
+    const probe = join(dirname(process.execPath), '.write-probe');
+    writeFileSync(probe, '');
+    unlinkSync(probe);
+    return besideExe;
+  } catch {
+    return join(app.getPath('userData'), 'config.json');
+  }
+}
+
+const CONFIG_PATH = resolveConfigPath();
 
 /** 通知を Windows で正しく出すための ID。変えると通知履歴が別物になる */
 app.setAppUserModelId('io.github.pmc-ko.pr-monitor');

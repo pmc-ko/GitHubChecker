@@ -83,6 +83,18 @@
       </div>
     </details>
 
+    <details class="panel" id="settingsPanel">
+      <summary>取得の設定</summary>
+      <div class="panel-body">
+        <p class="panel-note">
+          GitHub API の消費に直結する項目。変更するとその場で <code>config.json</code> に保存され、次の取得から反映されます
+          （<code>config.json</code> を手で編集する必要はありません）。
+        </p>
+        <div class="setting-grid" id="settingFields"></div>
+        <p class="panel-status" id="settingStatus"></p>
+      </div>
+    </details>
+
     <main id="list" class="list" aria-live="polite"></main>
 
     <footer class="footer">

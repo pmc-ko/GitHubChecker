@@ -14,6 +14,10 @@ const payload = {
   cached: false,
   ageSeconds: 0,
   settings: {
+    port: 8787,
+    maxPrsPerRepo: CONFIG.maxPrsPerRepo,
+    maxIssuesPerRepo: CONFIG.maxIssuesPerRepo,
+    configPath: 'C:\\tmp\\config.json',
     refreshSeconds: 300, // 消費見積もりの計算に使う。タイマーは最後のテストで止める
     cacheSeconds: CONFIG.cacheSeconds,
     repos: CONFIG.repos.map((repo) => repo.nameWithOwner),
@@ -68,6 +72,17 @@ test('API 残量のドーナツと調整口が出る', () => {
   // 1回 24点 × 3600/300 = 12回 → 288点/時
   assert.match(text(api), /288/);
   assert.equal(findAll(api, 'api-controls').length, 1, '更新間隔と Issue 取得の切り替えがある');
+});
+
+test('「取得の設定」に全項目が出て、設定ファイルの場所も分かる', () => {
+  const fields = findAll(byId('settingFields'), 'setting');
+  assert.equal(fields.length, 8, `${fields.length}項目`);
+  const labels = fields.map(text).join(' / ');
+  for (const word of ['自動更新の間隔', 'キャッシュ', 'Issue も取得', 'PR の取得上限', '除外する作成者', 'ポート']) {
+    assert.match(labels, new RegExp(word));
+  }
+  // 手で config.json を触らなくて済むように、場所も画面に出す
+  assert.match(text(byId('configPath')), /config\.json/);
 });
 
 test('Issue連携の軸で3列に分かれる', async () => {
