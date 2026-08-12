@@ -29,6 +29,8 @@ PR 監視ダッシュボード。**使いながら口頭で改修指示が飛ん
 | リポジトリごとの表示/非表示（取得は続ける） | `public/app.js` | `renderRepoFilter()` / `toggleRepoFilter()` / `state.filters.repos` |
 | 設定項目を増やす | `src/config.mjs` | `DEFAULTS` → README の表も更新 |
 | カンバンの行/列に選べる軸を増やす | `public/app.js` | `DIMENSIONS` に1エントリ（UIの選択肢は自動で増える） |
+| 表示の種類を増やす（カンバン/レーン/リスト） | `public/app.js` | `VIEWS` + `renderCollection()` の分岐（軸を使うものは `PIVOT_VIEWS` にも） |
+| レーン表示（横並び）の見た目 | `public/app.js` の `renderLanes()` + `public/style.css` の `.lane*` | 軸は「列の軸」を1つだけ使う |
 | 軸の並び順・0件グループの扱い | `public/app.js` | 各 DIMENSION の `order` / `alwaysShow`、`groupBy()` |
 | カードの見た目・情報量 | `public/app.js` | `renderCard()`（2段構成: `statusIcons()` + `ciMeterInline()` / タイトル + `metaChipList()`） |
 | アイコンを増やす・変える | `tools/make-icons.mjs` の `ICONS` → `npm run icons` | 使う側は定義テーブルで名前を書くだけ |

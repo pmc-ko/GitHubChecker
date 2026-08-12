@@ -57,9 +57,9 @@
 
     <section class="pivot-controls" id="pivotControls" aria-label="カンバンの軸">
       <span class="pivot-controls-label">軸</span>
-      <label class="axis">列 <select id="colDim" class="control" aria-label="列の軸"></select></label>
+      <label class="axis"><span id="colDimLabel">列</span> <select id="colDim" class="control" aria-label="列（レーン）の軸"></select></label>
       <button type="button" id="swapDims" class="button button-icon" title="行と列を入れ替える" aria-label="行と列を入れ替える"></button>
-      <label class="axis">行 <select id="rowDim" class="control" aria-label="行の軸"></select></label>
+      <label class="axis" id="rowDimLabel">行 <select id="rowDim" class="control" aria-label="行の軸"></select></label>
     </section>
 
     <main id="list" class="list" aria-live="polite"></main>

@@ -42,6 +42,13 @@ assert.ok(await settle(list, { tries: 50, intervalMs: 20 }), '描画が終わら
 
 const wait = () => new Promise((resolve) => setTimeout(resolve, 20));
 const itemCount = payload.pullRequests.length + payload.issues.length;
+/** 表示切り替えのボタンをラベルで探す（並び順に依存しないように） */
+const viewButton = (label) => byId('viewToggle').children.find((button) => text(button) === label);
+
+async function switchTo(label) {
+  fire(viewButton(label), 'click');
+  await wait();
+}
 
 test('KPI と状態フィルタが定義どおり並ぶ', () => {
   assert.equal(byId('kpis').children.length, 5);
@@ -109,9 +116,22 @@ test('ラベル軸は多値（合計が件数を超える）', async () => {
   await wait();
 });
 
+test('レーン表示は軸の値ごとに1レーンで、アイテムを横に並べる', async () => {
+  await switchTo('レーン');
+  assert.equal(list.className, 'lanes');
+
+  const lanes = findAll(list, 'lane');
+  assert.equal(lanes.length, 5, '状態の5値ぶんのレーン');
+  assert.equal(findAll(list, 'card').length, itemCount, 'カード総数は変わらない');
+  assert.equal(findAll(list, 'lane-strip').length, lanes.length, '各レーンに横並びの帯がある');
+  // レーンは1軸だけ使うので、行の軸と入れ替えは隠す
+  assert.equal(byId('rowDimLabel').hidden, true);
+  assert.equal(byId('swapDims').hidden, true);
+  assert.equal(byId('colDimLabel').textContent, 'レーン');
+});
+
 test('リスト表示に切り替えても件数が変わらない', async () => {
-  fire(byId('viewToggle').children[1], 'click');
-  await wait();
+  await switchTo('リスト');
   assert.equal(list.className, 'list');
   assert.equal(findAll(list, 'pr').length, itemCount);
   assert.ok(findAll(list, 'group-heading').length > 0);

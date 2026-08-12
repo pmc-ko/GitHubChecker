@@ -84,6 +84,12 @@
   box-sizing: border-box;
 }
 
+/* CSS で display を指定した要素にも hidden 属性を効かせる
+   （.pivot-controls や .axis のように display を持つものは UA の [hidden] に勝ってしまう） */
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   padding: 0 16px 48px;
@@ -1231,6 +1237,75 @@ a:hover {
   color: var(--text-muted);
   font-size: 11px;
   text-align: center;
+}
+
+/* ---------- レーン（横並び。横長の画面向け） ---------- */
+/* 軸の値 = 1レーン。アイテムは左から右に並べ、レーンごとに横スクロールする */
+
+.lanes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lane {
+  display: grid;
+  grid-template-columns: minmax(104px, 156px) minmax(0, 1fr);
+  gap: 8px;
+  align-items: stretch;
+}
+
+.lane-head {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  font-size: 12px;
+  font-weight: 620;
+}
+.lane-head[data-tone='critical'] {
+  border-left-color: var(--critical);
+}
+.lane-head[data-tone='serious'] {
+  border-left-color: var(--serious);
+}
+.lane-head[data-tone='warning'] {
+  border-left-color: var(--warning);
+}
+.lane-head[data-tone='good'] {
+  border-left-color: var(--good);
+}
+
+.lane-head-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lane-strip {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  min-width: 0;
+  padding: 6px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  overflow-x: auto;
+}
+/* カードは幅を決めて横に並べる（縦積みと違い、伸縮させない） */
+.lane-strip > * {
+  flex: 0 0 clamp(230px, 22vw, 340px);
+}
+/* 開いたカードは詳細が読める幅まで広げる */
+.lane-strip > .card[data-open='true'] {
+  flex: 0 0 min(720px, 86vw);
+}
+.lane-strip > .pivot-empty {
+  flex: 0 0 auto;
 }
 
 /* ---------- カード ---------- */

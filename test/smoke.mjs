@@ -59,7 +59,7 @@ expect('KPI タイルが5枚ある', byId('kpis').children.length === 5, `${byId
 expect('取得時刻が入っている', byId('fetched').textContent.length > 0);
 expect('ログインユーザが入っている', byId('viewer').textContent.startsWith('@'), byId('viewer').textContent);
 expect('状態フィルタのチップが5つある', byId('bucketFilter').children.length === 5, `${byId('bucketFilter').children.length}個`);
-expect('表示切り替えが2つある', byId('viewToggle').children.length === 2);
+expect('表示切り替えが3つある', byId('viewToggle').children.length === 3, `${byId('viewToggle').children.length}個`);
 expect(
   'リポジトリの絞り込みチェックが「全部」+リポジトリ数ある',
   byId('repoFilter').children.length === config.repos.length + 1,
@@ -168,7 +168,14 @@ if (args.includes('--print') && openedCard) console.log(`\n--- 開いたカー�
 
 /* --- リストビュー --- */
 
-fire(byId('viewToggle').children[1], 'click');
+// 並び順に依存しないようにラベルで探す（カンバン / レーン / リスト）
+const viewButton = (label) => byId('viewToggle').children.find((button) => text(button) === label);
+fire(viewButton('レーン'), 'click');
+await wait();
+expect('レーン表示に切り替わる', byId('list').className === 'lanes', byId('list').className);
+expect('レーンの数が軸の値ぶんある', findAll(byId('list'), 'lane').length === 5, `${findAll(byId('list'), 'lane').length}本`);
+expect('レーンでもカード総数は同じ', findAll(byId('list'), 'card').length === cards.length);
+fire(viewButton('リスト'), 'click');
 await wait();
 expect('リストビューに切り替わる', byId('list').className === 'list', byId('list').className);
 const rows = findAll(byId('list'), 'pr');

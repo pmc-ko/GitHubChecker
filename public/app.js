@@ -171,10 +171,20 @@ const DIMENSIONS = [
   { key: 'none', label: '（なし）', order: ['_all'], of: () => ({ key: '_all', label: 'すべて' }) },
 ];
 
+/**
+ * 表示の種類。
+ *   board: カンバン（列×行のピボット。縦に積む）
+ *   lane : レーン（軸の値を行にして、アイテムを左から右に並べる。横長の画面向け）
+ *   list : リスト（1件1行）
+ */
 const VIEWS = [
   { key: 'board', label: 'カンバン' },
+  { key: 'lane', label: 'レーン' },
   { key: 'list', label: 'リスト' },
 ];
+
+/** 軸コントロールを出す表示（レーンは1軸だけ使う） */
+const PIVOT_VIEWS = ['board', 'lane'];
 
 /* ---------------- 状態 ---------------- */
 
@@ -217,7 +227,7 @@ for (const id of [
   'viewer', 'fetched', 'refresh', 'autoRefresh', 'autoRefreshLabel', 'theme', 'viewToggle',
   'banner', 'kpis', 'bucketFilter', 'repoFilter', 'search', 'mineOnly', 'hideBots', 'hideDrafts', 'hideIssues',
   'progressPanel', 'progressSummary', 'chartLink', 'chartMilestone', 'chartLabel', 'chartApi',
-  'expandAll', 'list', 'footerInfo', 'pivotControls', 'colDim', 'rowDim', 'swapDims',
+  'expandAll', 'list', 'footerInfo', 'pivotControls', 'colDim', 'rowDim', 'swapDims', 'colDimLabel', 'rowDimLabel',
   'repoPanel', 'repoSummary', 'repoToggles', 'repoText', 'repoSave', 'repoReset', 'repoStatus', 'configPath',
   'settingsPanel', 'settingFields', 'settingStatus',
 ]) {
@@ -700,8 +710,8 @@ function renderViewToggle() {
 }
 
 function renderPivotControls() {
-  dom.pivotControls.hidden = state.view !== 'board';
-  if (state.view !== 'board') return;
+  dom.pivotControls.hidden = !PIVOT_VIEWS.includes(state.view);
+  if (dom.pivotControls.hidden) return;
 
   const select = (id, current) => {
     const node = dom[id];
@@ -712,6 +722,13 @@ function renderPivotControls() {
   };
   select('colDim', state.pivot.cols);
   select('rowDim', state.pivot.rows);
+
+  // レーンは「1軸 × 横並び」なので、行の軸と入れ替えボタンは使わない
+  const laneOnly = state.view === 'lane';
+  dom.pivotControls.dataset.mode = laneOnly ? 'lane' : 'board';
+  dom.colDimLabel.textContent = laneOnly ? 'レーン' : '列';
+  dom.rowDimLabel.hidden = laneOnly;
+  dom.swapDims.hidden = laneOnly;
 }
 
 /** 取得できているリポジトリをチェックボックスで出す（表示の絞り込み。取得は止めない） */
@@ -1290,7 +1307,40 @@ function renderCollection(pullRequests) {
   }
 
   if (state.view === 'board') renderBoard(pullRequests);
+  else if (state.view === 'lane') renderLanes(pullRequests);
   else renderRows(pullRequests);
+}
+
+/* ---------------- レーン（横並び） ---------------- */
+
+/**
+ * 軸の値ごとに1レーンを作り、アイテムを**左から右**に並べる。
+ * 横に広くて縦が無い画面（2560×720 等）向け。レーンごとに横スクロールする。
+ * 使う軸は「列の軸」（`state.pivot.cols`）。行の軸は使わない。
+ */
+function renderLanes(items) {
+  const dim = dimension(state.pivot.cols);
+  const groups = groupBy(items, dim);
+
+  const lanes = groups.map((group) =>
+    el('div', { class: 'lane' }, [
+      el('div', { class: 'lane-head', dataset: { tone: group.tone ?? 'idle' }, title: group.hint ?? group.label }, [
+        el('span', { class: 'dot', dataset: { tone: group.tone ?? 'idle' }, 'aria-hidden': 'true' }),
+        el('span', { class: 'lane-head-label', text: group.label }),
+        el('span', { class: 'pivot-count', text: String(group.items.length) }),
+      ]),
+      el(
+        'div',
+        { class: 'lane-strip' },
+        group.items.length
+          ? group.items.map((item) => renderCard(item, { showRepo: dim.key !== 'repo' }))
+          : [el('p', { class: 'pivot-empty', text: '—' })]
+      ),
+    ])
+  );
+
+  dom.list.className = 'lanes';
+  setChildren(dom.list, lanes);
 }
 
 /* ---------------- カンバン（ピボット） ---------------- */
