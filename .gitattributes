@@ -1,1 +1,6 @@
 * text=auto eol=lf
+
+# cmd.exe はバッチファイルを OEM コードページで読み、CRLF を前提にしている。
+# LF に正規化すると壊れることがあるため CRLF のまま扱う（中身は ASCII のみに保つ）。
+*.cmd text eol=crlf
+*.bat text eol=crlf
