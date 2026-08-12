@@ -1,0 +1,11 @@
+{
+  "port": 8787,
+  "repos": [
+    "owner/name"
+  ],
+  "maxPrsPerRepo": 100,
+  "cacheSeconds": 45,
+  "refreshSeconds": 60,
+  "excludeAuthors": [],
+  "excludeDrafts": false
+}

@@ -1,0 +1,16 @@
+{
+  "name": "github-pr-checker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "GitHub PR の Actions 状況とレビュー状況を一覧監視するローカルダッシュボード",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "dev": "node --watch src/server.mjs",
+    "dump": "node src/dump.mjs",
+    "smoke": "node test/smoke.mjs"
+  }
+}

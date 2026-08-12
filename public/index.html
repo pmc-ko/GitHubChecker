@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ja" data-theme="auto">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PR Monitor</title>
+    <link rel="stylesheet" href="/style.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='13' font-size='14'%3E%F0%9F%93%A1%3C/text%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-title">
+        <h1>PR Monitor</h1>
+        <span class="viewer" id="viewer"></span>
+      </div>
+      <div class="topbar-actions">
+        <span class="fetched" id="fetched" title="最終取得時刻"></span>
+        <button type="button" id="refresh" class="button" title="今すぐ取り直す (r)">更新</button>
+        <label class="toggle" title="設定の refreshSeconds ごとに取り直す">
+          <input type="checkbox" id="autoRefresh" checked />
+          <span id="autoRefreshLabel">自動</span>
+        </label>
+        <button type="button" id="theme" class="button button-icon" title="テーマ切り替え">◐</button>
+      </div>
+    </header>
+
+    <div id="banner" class="banner" hidden></div>
+
+    <section class="kpis" id="kpis" aria-label="集計"></section>
+
+    <section class="filters" aria-label="絞り込み">
+      <div class="filter-buckets" id="bucketFilter" role="group" aria-label="状態で絞り込み"></div>
+      <div class="filter-rest">
+        <select id="repoFilter" class="control" aria-label="リポジトリで絞り込み"></select>
+        <input type="search" id="search" class="control" placeholder="タイトル・作成者・ブランチで検索" aria-label="検索" />
+        <label class="toggle"><input type="checkbox" id="mineOnly" /> 自分のPRのみ</label>
+        <label class="toggle"><input type="checkbox" id="hideBots" /> bot除外</label>
+        <label class="toggle"><input type="checkbox" id="hideDrafts" /> Draft除外</label>
+        <button type="button" id="expandAll" class="button button-quiet">全部展開</button>
+      </div>
+    </section>
+
+    <main id="list" class="list" aria-live="polite"></main>
+
+    <footer class="footer">
+      <span id="footerInfo"></span>
+      <span class="footer-hint">r: 更新 / 行クリック: 詳細 / 設定は config.json（保存すれば次の取得で反映）</span>
+    </footer>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
