@@ -797,7 +797,7 @@ function renderKpis() {
       tone: 'idle',
       label: 'Issue（PRなし）',
       value: stats.issueOnly ?? 0,
-      sub: `${LINK_ITEM.both.icon} 両方 ${stats.both ?? 0} / ${LINK_ITEM['pr-only'].icon} PRのみ ${stats.prOnly ?? 0}`,
+      sub: `${LINK_ITEM.both.label} ${stats.both ?? 0} / ${LINK_ITEM['pr-only'].label} ${stats.prOnly ?? 0}`,
     },
   ];
 
@@ -855,7 +855,7 @@ function stackBar(parts, total) {
           class: 'stack-part',
           dataset: { series: String(part.spec.series) },
           style: `flex:${part.count}`,
-          title: `${part.spec.icon} ${part.spec.label} ${part.count}件（${percent(part.count, total)}%）`,
+          title: `${part.spec.label} ${part.count}件（${percent(part.count, total)}%）`,
         })
       )
   );
@@ -877,7 +877,10 @@ function renderLinkChart(items) {
       parts.map((part) =>
         el('span', { class: 'legend-key', title: part.spec.hint }, [
           el('span', { class: 'legend-swatch', dataset: { series: String(part.spec.series) }, 'aria-hidden': 'true' }),
-          el('span', { text: `${part.spec.icon} ${part.spec.label}` }),
+          el('span', { class: 'status-icon', dataset: { series: String(part.spec.series) } }, [
+            icon(part.spec.icon, { size: 13 }),
+          ]),
+          el('span', { text: part.spec.label }),
           el('span', { class: 'legend-value', text: `${part.count}（${percent(part.count, total)}%）` }),
         ])
       )
