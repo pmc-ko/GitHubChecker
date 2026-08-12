@@ -7,8 +7,8 @@
   "maxPrsPerRepo": 100,
   "includeIssues": true,
   "maxIssuesPerRepo": 100,
-  "cacheSeconds": 45,
-  "refreshSeconds": 60,
+  "cacheSeconds": 120,
+  "refreshSeconds": 300,
   "excludeAuthors": [],
   "excludeDrafts": false
 }
