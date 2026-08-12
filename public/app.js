@@ -1,58 +1,86 @@
 // ダッシュボードの描画。
 //
+// アイコンは Material Symbols（`public/icons.js` = 生成物）。名前で参照する。
 // 表示の意味づけ（ラベル・記号・色）と、ピボットの軸は先頭の定義テーブルに集約してある。
 // 「この表示をこう変えたい」は基本そこを直すだけで済むようにしてある。
 //   BUCKETS / CI_STATE / REVIEW_STATE / CHECK_ICON / REVIEW_ITEM … 見た目の意味づけ
 //   DIMENSIONS                                                  … カンバンの行/列に選べる軸
 // DOM は textContent 経由で組み立てる（PRタイトル等をそのままHTMLにしない）。
 
+import { ICON_PATHS, ICON_VIEWBOX } from './icons.js';
+
 /* ---------------- 表示定義（ここを触れば見た目の意味づけが変わる） ---------------- */
 
-/** バケット = 「状態」軸の値。src/summarize.mjs の classify() と key を一致させる */
+/**
+ * バケット = 「状態」軸の値。src/summarize.mjs の classify() と key を一致させる。
+ * issue だけは classify() を通らず summarizeIssue() が付ける（PR が無い Issue）。
+ */
 const BUCKETS = [
   { key: 'action', label: '対応が必要', tone: 'critical', hint: '誰かが手を動かさないと進まない' },
   { key: 'mergeable', label: 'マージ可', tone: 'good', hint: '承認済み & CI通過 & Draftでない' },
   { key: 'waiting', label: '待ち', tone: 'warning', hint: 'CI実行中 / レビュー待ち' },
   { key: 'other', label: 'その他', tone: 'idle', hint: 'Draft・レビュー依頼前など' },
+  { key: 'issue', label: 'Issue（PRなし）', tone: 'idle', hint: 'PR がまだ無い Issue = 未着手' },
 ];
 
-/** 「状態」軸を並べる順。ここを並べ替えると列（または行）の順が変わる */
-const BUCKET_ORDER = ['action', 'waiting', 'mergeable', 'other'];
+/** 「状態」軸を並べる順。ここを並べ替えると列（や行）の順が変わる */
+const BUCKET_ORDER = ['action', 'waiting', 'mergeable', 'other', 'issue'];
 
-/** Actions（チェック）の全体状態 */
+/**
+ * PR と Issue の紐づき（3パターン）。key は src/summarize.mjs の LINK_STATE と一致させる。
+ * グラフの色（--series-*）もこの順に対応する。色だけで意味を伝えないようアイコン+文字を必ず添える。
+ */
+const LINK_ITEM = {
+  'issue-only': { label: 'Issueのみ', icon: 'radio_button_unchecked', series: 2, hint: 'PR がまだ無い Issue（未着手）' },
+  both: { label: 'Issue+PR', icon: 'link', series: 1, hint: 'Issue に PR が紐づいている（進行中）' },
+  'pr-only': { label: 'PRのみ', icon: 'call_split', series: 3, hint: 'Issue に紐づいていない PR' },
+};
+
+/** 3パターンを並べる順（軸・凡例・グラフで共通） */
+const LINK_ORDER = ['issue-only', 'both', 'pr-only'];
+
+/** Actions（チェック）の全体状態。icon は Material Symbols の名前（public/icons.js） */
 const CI_STATE = {
-  success: { label: 'CI成功', icon: '✔', tone: 'good' },
-  failure: { label: 'CI失敗', icon: '✕', tone: 'critical' },
-  pending: { label: 'CI実行中', icon: '◐', tone: 'warning' },
-  cancelled: { label: 'CI中断', icon: '⊘', tone: 'idle' },
-  neutral: { label: 'CI対象外', icon: '–', tone: 'idle' },
-  none: { label: 'CIなし', icon: '–', tone: 'idle' },
+  success: { label: 'CI成功', icon: 'check_circle', tone: 'good' },
+  failure: { label: 'CI失敗', icon: 'cancel', tone: 'critical' },
+  pending: { label: 'CI実行中', icon: 'hourglass_top', tone: 'warning' },
+  cancelled: { label: 'CI中断', icon: 'block', tone: 'idle' },
+  neutral: { label: 'CI対象外', icon: 'remove', tone: 'idle' },
+  none: { label: 'CIなし', icon: 'remove', tone: 'idle' },
 };
 
 /** レビュー結果のサマリ状態 */
 const REVIEW_STATE = {
-  approved: { label: '承認済み', icon: '✔', tone: 'good' },
-  changes_requested: { label: '変更要求', icon: '✕', tone: 'serious' },
-  review_required: { label: 'レビュー待ち', icon: '◔', tone: 'warning' },
-  commented: { label: 'コメントのみ', icon: '≡', tone: 'idle' },
-  none: { label: '未レビュー', icon: '–', tone: 'idle' },
+  approved: { label: '承認済み', icon: 'check_circle', tone: 'good' },
+  changes_requested: { label: '変更要求', icon: 'error', tone: 'serious' },
+  review_required: { label: 'レビュー待ち', icon: 'schedule', tone: 'warning' },
+  commented: { label: 'コメントのみ', icon: 'chat_bubble', tone: 'idle' },
+  none: { label: '未レビュー', icon: 'remove', tone: 'idle' },
 };
 
 /** 個別チェックのアイコン */
-const CHECK_ICON = { success: '✔', failure: '✕', pending: '◐', cancelled: '⊘', skipped: '·', neutral: '–' };
+const CHECK_ICON = {
+  success: 'check_circle',
+  failure: 'cancel',
+  pending: 'hourglass_top',
+  cancelled: 'block',
+  skipped: 'horizontal_rule',
+  neutral: 'remove',
+};
 
 /** 個別レビューの表示 */
 const REVIEW_ITEM = {
-  APPROVED: { label: '承認', icon: '✔', tone: 'good' },
-  CHANGES_REQUESTED: { label: '変更要求', icon: '✕', tone: 'serious' },
-  COMMENTED: { label: 'コメント', icon: '≡', tone: 'idle' },
-  DISMISSED: { label: '棄却', icon: '⊘', tone: 'idle' },
-  PENDING: { label: '下書き', icon: '·', tone: 'idle' },
+  APPROVED: { label: '承認', icon: 'check_circle', tone: 'good' },
+  CHANGES_REQUESTED: { label: '変更要求', icon: 'error', tone: 'serious' },
+  COMMENTED: { label: 'コメント', icon: 'chat_bubble', tone: 'idle' },
+  DISMISSED: { label: '棄却', icon: 'block', tone: 'idle' },
+  PENDING: { label: '下書き', icon: 'edit_note', tone: 'idle' },
 };
 
 /**
  * カンバンの行/列に選べる軸。
- *   of(pr)      : その PR が属するグループ → { key, label, tone?, icon? }
+ *   of(item)    : その PR / Issue が属するグループ → { key, label, tone?, icon? }
+ *   many        : 1件が複数グループに入る軸（ラベルなど）。of() が配列を返す
  *   order       : 固定の並び順（省略時は件数の多い順）
  *   alwaysShow  : 0件のグループも列/行として出す
  * 軸を増やしたいときはここに1エントリ足すだけでよい（UI の選択肢は自動で増える）。
@@ -85,6 +113,34 @@ const DIMENSIONS = [
       const spec = REVIEW_STATE[pr.review.state] ?? REVIEW_STATE.none;
       return { key: pr.review.state, label: spec.label, tone: spec.tone, icon: spec.icon };
     },
+  },
+  {
+    key: 'link',
+    label: 'Issue連携',
+    order: LINK_ORDER,
+    alwaysShow: true,
+    of: (item) => {
+      const spec = LINK_ITEM[item.link] ?? LINK_ITEM['pr-only'];
+      return { key: item.link, label: spec.label, icon: spec.icon, hint: spec.hint };
+    },
+  },
+  {
+    key: 'milestone',
+    label: 'マイルストン',
+    of: (item) => {
+      const title = milestoneTitleOf(item);
+      return title ? { key: title, label: title } : { key: '_none', label: 'マイルストンなし' };
+    },
+  },
+  {
+    key: 'label',
+    label: 'ラベル',
+    // 1件が複数ラベルを持つので、その全部のグループに出す（合計は件数より多くなる）
+    many: true,
+    of: (item) =>
+      item.labels.length
+        ? item.labels.map((label) => ({ key: label.name, label: label.name }))
+        : [{ key: '_none', label: 'ラベルなし' }],
   },
   { key: 'repo', label: 'リポジトリ', of: (pr) => ({ key: pr.repo, label: shortRepo(pr.repo) }) },
   { key: 'author', label: '作成者', of: (pr) => ({ key: pr.author, label: pr.author }) },
@@ -138,23 +194,29 @@ const state = {
   open: new Set(),
   /** リポジトリ編集欄の未保存内容（null = サーバの値を表示中） */
   repoDraft: null,
+  /** 監視 OFF にしたリポジトリの未保存状態（null = サーバの値を表示中） */
+  repoDisabledDraft: null,
   repoStatus: '',
   filters: {
     buckets: BUCKETS.map((b) => b.key),
-    repo: '',
+    /** 表示するリポジトリ。空配列 = 全部（チェックは全部入った状態で描く） */
+    repos: [],
     search: '',
     mineOnly: false,
     hideBots: false,
     hideDrafts: false,
+    /** PR が無い Issue を一覧に出さない（Issue連携の3パターンのうち「Issueのみ」を隠す） */
+    hideIssues: false,
   },
 };
 
 const dom = {};
 for (const id of [
   'viewer', 'fetched', 'refresh', 'autoRefresh', 'autoRefreshLabel', 'theme', 'viewToggle',
-  'banner', 'kpis', 'bucketFilter', 'repoFilter', 'search', 'mineOnly', 'hideBots', 'hideDrafts',
+  'banner', 'kpis', 'bucketFilter', 'repoFilter', 'search', 'mineOnly', 'hideBots', 'hideDrafts', 'hideIssues',
+  'progressPanel', 'progressSummary', 'chartLink', 'chartMilestone', 'chartLabel',
   'expandAll', 'list', 'footerInfo', 'pivotControls', 'colDim', 'rowDim', 'swapDims',
-  'repoPanel', 'repoSummary', 'repoText', 'repoSave', 'repoReset', 'repoStatus',
+  'repoPanel', 'repoSummary', 'repoToggles', 'repoText', 'repoSave', 'repoReset', 'repoStatus',
 ]) {
   dom[id] = document.getElementById(id);
 }
@@ -220,9 +282,47 @@ function dimension(key) {
   return DIMENSIONS.find((d) => d.key === key) ?? DIMENSIONS[0];
 }
 
+/** 軸の of() は1件でも配列でも返せる（many 軸）。呼ぶ側は必ずこれを通す */
+function groupsOf(dim, item) {
+  const result = dim.of(item);
+  return Array.isArray(result) ? result : [result];
+}
+
+/** その PR / Issue のマイルストン名。PR 自体に無ければ紐づく Issue のものを使う */
+function milestoneTitleOf(item) {
+  if (item.milestone?.title) return item.milestone.title;
+  return item.issues?.find((issue) => issue.milestone?.title)?.milestone?.title ?? null;
+}
+
+/** いま一覧に出す対象。PR と（除外していなければ）PR が無い Issue */
+function allItems() {
+  const data = state.data;
+  if (!data) return [];
+  const prs = data.pullRequests ?? [];
+  if (state.filters.hideIssues) return prs;
+  return [...prs, ...(data.issues ?? [])];
+}
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/** Material Symbols のアイコン1つ。塗りは currentColor なので色は CSS 側で決まる */
+function icon(name, { size = 16 } = {}) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('class', 'mi');
+  svg.setAttribute('viewBox', ICON_VIEWBOX);
+  svg.setAttribute('width', String(size));
+  svg.setAttribute('height', String(size));
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('d', ICON_PATHS[name] ?? ICON_PATHS.remove);
+  svg.append(path);
+  return svg;
+}
+
 function badge(spec, extraText) {
   return el('span', { class: 'badge', dataset: { tone: spec.tone }, title: extraText ?? spec.label }, [
-    el('span', { class: 'icon', 'aria-hidden': 'true', text: spec.icon }),
+    icon(spec.icon),
     el('span', { text: spec.label }),
   ]);
 }
@@ -283,6 +383,128 @@ function reviewSummaryText(pr) {
   );
 }
 
+/** Issue連携のバッジ。色はグラフと同じ系列色を使い、アイコン+文字も必ず出す */
+function linkBadge(item) {
+  const spec = LINK_ITEM[item.link] ?? LINK_ITEM['pr-only'];
+  return el('span', { class: 'badge badge-series', dataset: { series: String(spec.series) }, title: spec.hint }, [
+    icon(spec.icon),
+    el('span', { text: spec.label }),
+  ]);
+}
+
+/**
+ * カード1段目の状況アイコン。アイコンの「形」で意味が分かるようにし、
+ * 語（CI成功/変更要求…）は tooltip と詳細で出す（色だけに意味を持たせない）。
+ */
+function statusIcons(item) {
+  const icons = [];
+  const add = (spec, extra) =>
+    icons.push(
+      el(
+        'span',
+        {
+          class: 'status-icon',
+          dataset: spec.series ? { series: String(spec.series) } : { tone: spec.tone },
+          title: `${spec.label}${extra ? ` — ${extra}` : ''}`,
+        },
+        [icon(spec.icon, { size: 15 })]
+      )
+    );
+
+  if (item.kind !== 'issue') {
+    const ci = CI_STATE[item.ci.state] ?? CI_STATE.none;
+    add(ci, item.ci.total ? `${item.ci.passed}/${item.ci.relevant} 通過` : 'チェックなし');
+    const review = REVIEW_STATE[item.review.state] ?? REVIEW_STATE.none;
+    add(review, reviewSummaryText(item));
+  }
+  const link = LINK_ITEM[item.link] ?? LINK_ITEM['pr-only'];
+  add(link, link.hint);
+  if (item.hasConflict) add({ label: 'コンフリクト', icon: 'warning', tone: 'critical' }, 'マージ前に解消が必要');
+
+  return el('span', { class: 'card-icons', role: 'img', 'aria-label': '状況' }, icons);
+}
+
+/** 1段目に置く細い CI 進捗バー。チェックが無いときは何も出さない */
+function ciMeterInline(pr) {
+  if (!pr.ci.total) return null;
+  const ratio = pr.ci.relevant > 0 ? Math.round((pr.ci.passed / pr.ci.relevant) * 100) : 0;
+  const tone = (CI_STATE[pr.ci.state] ?? CI_STATE.none).tone;
+  const failing = pr.ci.failing.length ? ` / 失敗 ${pr.ci.failing.length}` : '';
+  const running = pr.ci.running.length ? ` / 実行中 ${pr.ci.running.length}` : '';
+  return el('span', { class: 'meter-inline', title: `チェック ${pr.ci.passed}/${pr.ci.relevant} 通過${failing}${running}` }, [
+    el('span', { class: 'meter', dataset: { tone }, role: 'presentation' }, [el('span', { style: `width:${ratio}%` })]),
+    el('span', { class: 'meter-value', text: `${pr.ci.passed}/${pr.ci.relevant}` }),
+  ]);
+}
+
+/** マイルストン / 紐づく Issue / ラベルのチップ列。無ければ何も出さない */
+function metaChips(item, { maxLabels = 3 } = {}) {
+  const children = metaChipList(item, { maxLabels });
+  return children.length ? el('div', { class: 'card-chips' }, children) : null;
+}
+
+/** チップの配列（タイトルの続きに流し込みたいので、包まずに返す版） */
+function metaChipList(item, { maxLabels = 3 } = {}) {
+  const children = [];
+  const milestone = milestoneTitleOf(item);
+  if (milestone) {
+    children.push(
+      el('span', { class: 'chip chip-milestone', title: `マイルストン: ${milestone}` }, [
+        icon('flag', { size: 12 }),
+        el('span', { text: milestone }),
+      ])
+    );
+  }
+  for (const issue of item.issues ?? []) {
+    children.push(
+      el('a', {
+        class: 'chip chip-issue',
+        href: issue.url,
+        target: '_blank',
+        rel: 'noreferrer',
+        title: `${issue.title}（${issue.state === 'CLOSED' ? 'クローズ済み' : 'オープン'}）`,
+        text: `Issue #${issue.number}`,
+        onclick: stopClick,
+      })
+    );
+  }
+  for (const label of item.labels.slice(0, maxLabels)) {
+    children.push(
+      el('span', {
+        class: 'label-chip',
+        title: label.name,
+        text: label.name,
+        style: `background:#${label.color}22;border:1px solid #${label.color}66`,
+      })
+    );
+  }
+  if (item.labels.length > maxLabels) {
+    children.push(
+      el('span', {
+        class: 'chip',
+        title: item.labels.map((label) => label.name).join(', '),
+        text: `+${item.labels.length - maxLabels}`,
+      })
+    );
+  }
+  return children;
+}
+
+/** Issue の担当者。PR 側の reviewerAvatars と同じ見た目に揃える */
+function assigneeAvatars(item, limit = 5) {
+  const assignees = item.assignees ?? [];
+  if (!assignees.length) return el('span', { class: 'avatars' }, [el('span', { class: 'team', text: '担当なし' })]);
+  return el(
+    'span',
+    { class: 'avatars' },
+    assignees.slice(0, limit).map((person) =>
+      person.avatarUrl
+        ? el('img', { src: person.avatarUrl, alt: person.login, title: person.login, loading: 'lazy' })
+        : el('span', { class: 'team', text: person.login })
+    )
+  );
+}
+
 function reviewerAvatars(pr, limit = 5) {
   return el(
     'span',
@@ -318,7 +540,11 @@ async function load({ refresh = false } = {}) {
   }
 }
 
-/** 監視リポジトリを保存する（config.json がサーバ側で書き換わる） */
+/**
+ * 監視リポジトリを保存する（config.json がサーバ側で書き換わる）。
+ * lines = 候補すべて（1行1つ）、チェックを外したものは disabledRepos として送る。
+ * 有効/無効の引き算はサーバ側でやる（正規化の基準を1か所に保つ）。
+ */
 async function saveRepos(lines) {
   const repos = lines
     .split('\n')
@@ -331,12 +557,13 @@ async function saveRepos(lines) {
     const response = await fetch('/api/config/repos', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ repos }),
+      body: JSON.stringify({ repos, disabledRepos: [...disabledRepos()] }),
     });
     const payload = await response.json();
     if (!response.ok || payload.error) throw new Error(payload.error ?? `HTTP ${response.status}`);
     state.repoDraft = null;
-    state.filters.repo = ''; // 消えたリポジトリで絞ったままにならないように解除
+    state.repoDisabledDraft = null;
+    state.filters.repos = []; // 消えたリポジトリで絞ったままにならないように解除
     saveFilters();
     // 再取得は数秒かかるので、保存できたことは先に出す
     state.repoStatus = `保存しました（${payload.repos.length} リポジトリ）。再取得中…`;
@@ -362,10 +589,11 @@ function render() {
   renderMeta();
   renderViewToggle();
   renderPivotControls();
-  renderRepoOptions();
+  renderRepoFilter();
   renderRepoEditor();
-  const visible = applyFilters(state.data?.pullRequests ?? []);
+  const visible = applyFilters(allItems());
   renderKpis();
+  renderProgress(visible);
   renderBucketFilter();
   renderCollection(visible);
   renderFooter(visible);
@@ -379,8 +607,23 @@ function renderBanner() {
     tone = 'critical';
   }
   if (state.data?.warning) messages.push(state.data.warning);
+  // 残量が少ないうちに言う（0 になると取得自体が失敗する）
+  const rate = state.data?.rateLimit;
+  if (rate && rate.remaining < Math.max(500, (rate.fetchCost ?? 0) * 5)) {
+    messages.push(
+      `GitHub API の残量が少なくなっています（残 ${rate.remaining}/${rate.limit}・1回の取得 ${rate.fetchCost ?? '?'}点・` +
+        `リセット ${absoluteTime(rate.resetAt)}）。config.json の refreshSeconds を増やすか、監視リポジトリを減らしてください。`
+    );
+  }
   for (const repo of state.data?.repos ?? []) {
     if (repo.error) messages.push(`${repo.nameWithOwner}: ${repo.error}`);
+    if (repo.issueError) messages.push(`${repo.nameWithOwner}: Issue を取得できませんでした（${repo.issueError}）`);
+    // 取り切れていないときは黙って切らずに言う（グラフの母数が変わるため）
+    if (repo.issueCount < (repo.issueTotalOpen ?? 0)) {
+      messages.push(
+        `${repo.nameWithOwner}: オープン Issue ${repo.issueTotalOpen} 件のうち ${repo.issueCount} 件だけ取得しています（config.json の maxIssuesPerRepo）`
+      );
+    }
   }
   dom.banner.textContent = messages.join('\n');
   dom.banner.dataset.tone = tone;
@@ -431,41 +674,100 @@ function renderPivotControls() {
   select('rowDim', state.pivot.rows);
 }
 
-function renderRepoOptions() {
+/** 取得できているリポジトリをチェックボックスで出す（表示の絞り込み。取得は止めない） */
+function renderRepoFilter() {
   const repos = state.data?.repos ?? [];
-  const current = state.filters.repo;
+  // 監視から外れたリポジトリで絞ったままになると何も出なくなるので落としておく
+  if (repos.length && state.filters.repos.length) {
+    const alive = state.filters.repos.filter((name) => repos.some((repo) => repo.nameWithOwner === name));
+    if (alive.length !== state.filters.repos.length) {
+      state.filters.repos = alive.length < repos.length ? alive : [];
+      saveFilters();
+    }
+  }
+  const shown = shownRepos();
+  const chip = (label, checked, title, onchange) => {
+    const box = el('input', { type: 'checkbox', onchange });
+    box.checked = checked;
+    return el('label', { class: 'toggle', title }, [box, el('span', { text: label })]);
+  };
+
+  // 件数は「いま一覧に出しているもの」に揃える（Issue を含めるかで変わる）
+  const items = allItems();
+  const countOf = (nameWithOwner) => items.filter((item) => item.repo === nameWithOwner).length;
+
   dom.repoFilter.replaceChildren(
-    el('option', { value: '', text: `全リポジトリ (${repos.length})` }),
+    chip(`全${repos.length}`, state.filters.repos.length === 0, '全リポジトリを表示', () => {
+      state.filters.repos = [];
+      saveFilters();
+      render();
+    }),
     ...repos.map((repo) =>
-      el('option', {
-        value: repo.nameWithOwner,
-        text: `${shortRepo(repo.nameWithOwner)} (${repo.count})`,
-        selected: repo.nameWithOwner === current,
-      })
+      chip(
+        `${shortRepo(repo.nameWithOwner)} (${countOf(repo.nameWithOwner)})`,
+        shown.has(repo.nameWithOwner),
+        repo.nameWithOwner,
+        () => toggleRepoFilter(repo.nameWithOwner)
+      )
     )
   );
-  dom.repoFilter.value = repos.some((r) => r.nameWithOwner === current) ? current : '';
+}
+
+/** 監視候補（有効 + 無効）。入力欄と ON/OFF はこの並びで作る */
+function repoCandidates() {
+  const settings = state.data?.settings;
+  return [...(settings?.repos ?? []), ...(settings?.disabledRepos ?? [])];
+}
+
+/** いま OFF にしているリポジトリ（未保存の変更があればそれを優先） */
+function disabledRepos() {
+  return state.repoDisabledDraft ?? new Set(state.data?.settings?.disabledRepos ?? []);
 }
 
 function renderRepoEditor() {
-  const repos = state.data?.settings?.repos ?? [];
-  dom.repoSummary.textContent = `監視リポジトリ（${repos.length}）`;
+  const candidates = repoCandidates();
+  const disabled = disabledRepos();
+  const enabled = candidates.filter((name) => !disabled.has(name));
+  dom.repoSummary.textContent =
+    candidates.length === enabled.length
+      ? `監視リポジトリ（${enabled.length}）`
+      : `監視リポジトリ（${enabled.length}/${candidates.length}）`;
+
+  dom.repoToggles.replaceChildren(
+    ...candidates.map((name) => {
+      const box = el('input', { type: 'checkbox', onchange: () => toggleRepoEnabled(name) });
+      box.checked = !disabled.has(name);
+      return el('label', { class: 'toggle', title: `${name} の監視を切り替える` }, [box, el('span', { text: name })]);
+    })
+  );
+
   // 入力中の内容を上書きしない
-  if (state.repoDraft === null) dom.repoText.value = repos.join('\n');
+  if (state.repoDraft === null) dom.repoText.value = candidates.join('\n');
   dom.repoStatus.textContent = state.repoStatus;
 }
 
 function applyFilters(pullRequests) {
-  const { buckets, repo, search, mineOnly, hideBots, hideDrafts } = state.filters;
+  const { buckets, repos, search, mineOnly, hideBots, hideDrafts } = state.filters;
   const needle = search.trim().toLowerCase();
   return pullRequests.filter((pr) => {
     if (!buckets.includes(pr.bucket)) return false;
-    if (repo && pr.repo !== repo) return false;
+    if (repos.length && !repos.includes(pr.repo)) return false;
     if (mineOnly && !pr.isMine) return false;
     if (hideBots && isBot(pr.author)) return false;
     if (hideDrafts && pr.isDraft) return false;
     if (needle) {
-      const haystack = [pr.title, pr.author, pr.headRefName, pr.baseRefName, String(pr.number), pr.repo]
+      const haystack = [
+        pr.title,
+        pr.author,
+        pr.headRefName,
+        pr.baseRefName,
+        String(pr.number),
+        pr.repo,
+        milestoneTitleOf(pr),
+        ...pr.labels.map((label) => label.name),
+        ...(pr.issues ?? []).map((issue) => `#${issue.number} ${issue.title}`),
+      ]
+        .filter(Boolean)
         .join(' ')
         .toLowerCase();
       if (!haystack.includes(needle)) return false;
@@ -491,6 +793,12 @@ function renderKpis() {
     { tone: 'warning', label: '待ち', value: stats.waiting, sub: `CI実行中 ${stats.ciPending} / レビュー待ち ${stats.reviewRequired}` },
     { tone: 'good', label: 'マージ可', value: stats.mergeable, sub: `承認済み ${stats.approved}` },
     { tone: 'idle', label: '監視中のPR', value: stats.total, sub: `自分 ${stats.mine} / ${repoCount} リポジトリ` },
+    {
+      tone: 'idle',
+      label: 'Issue（PRなし）',
+      value: stats.issueOnly ?? 0,
+      sub: `${LINK_ITEM.both.icon} 両方 ${stats.both ?? 0} / ${LINK_ITEM['pr-only'].icon} PRのみ ${stats.prOnly ?? 0}`,
+    },
   ];
 
   dom.kpis.replaceChildren(
@@ -507,8 +815,171 @@ function renderKpis() {
   );
 }
 
+/* ---------------- 進捗グラフ ---------------- */
+// 3枚。どれも「色や長さだけ」に意味を持たせず、件数と % を文字でも出す。
+//   Issue連携の内訳 : いま表示中のものを3パターンで積み上げ（1本）
+//   マイルストン進捗 : クローズ済み/全体（GitHub の progressPercentage。表示中の絞り込みとは無関係）
+//   ラベル別        : 件数の多い順に上位、内訳は同じ3パターンの色
+
+/** ラベル別グラフに出す行数。これを超えた分は件数を添えて「省略」と出す */
+const LABEL_ROWS = 8;
+
+const percent = (value, total) => (total ? Math.round((value / total) * 100) : 0);
+
+function renderProgress(visible) {
+  const milestones = state.data?.milestones ?? [];
+  dom.progressSummary.textContent = `進捗（マイルストン ${milestones.length}）`;
+  renderLinkChart(visible);
+  renderMilestoneChart();
+  renderLabelChart(visible);
+}
+
+/** 3パターンの内訳を数える。順番は LINK_ORDER 固定（色と対応させるため） */
+function linkCounts(items) {
+  return LINK_ORDER.map((key) => ({
+    key,
+    spec: LINK_ITEM[key],
+    count: items.filter((item) => item.link === key).length,
+  }));
+}
+
+/** 積み上げバー1本。件数 0 のパターンは棒を出さない（凡例には残す） */
+function stackBar(parts, total) {
+  return el(
+    'div',
+    { class: 'stack' },
+    parts
+      .filter((part) => part.count > 0)
+      .map((part) =>
+        el('div', {
+          class: 'stack-part',
+          dataset: { series: String(part.spec.series) },
+          style: `flex:${part.count}`,
+          title: `${part.spec.icon} ${part.spec.label} ${part.count}件（${percent(part.count, total)}%）`,
+        })
+      )
+  );
+}
+
+function renderLinkChart(items) {
+  const parts = linkCounts(items);
+  const total = parts.reduce((sum, part) => sum + part.count, 0);
+
+  dom.chartLink.replaceChildren(
+    el('h2', { class: 'chart-title', text: 'Issue連携の内訳' }),
+    el('p', { class: 'chart-note', text: `表示中の ${total} 件。Issueのみ＝未着手、Issue+PR＝進行中。` }),
+    total
+      ? stackBar(parts, total)
+      : el('p', { class: 'chart-note', text: '表示中のものがありません。' }),
+    el(
+      'div',
+      { class: 'legend' },
+      parts.map((part) =>
+        el('span', { class: 'legend-key', title: part.spec.hint }, [
+          el('span', { class: 'legend-swatch', dataset: { series: String(part.spec.series) }, 'aria-hidden': 'true' }),
+          el('span', { text: `${part.spec.icon} ${part.spec.label}` }),
+          el('span', { class: 'legend-value', text: `${part.count}（${percent(part.count, total)}%）` }),
+        ])
+      )
+    )
+  );
+}
+
+function renderMilestoneChart() {
+  const shown = shownRepos();
+  const milestones = (state.data?.milestones ?? []).filter((milestone) => shown.has(milestone.repo));
+
+  dom.chartMilestone.replaceChildren(
+    el('h2', { class: 'chart-title', text: 'マイルストン進捗' }),
+    el('p', {
+      class: 'chart-note',
+      text: 'クローズ済み Issue ÷ Issue 全体（オープンなマイルストンのみ。リポジトリの絞り込みだけ反映）',
+    }),
+    milestones.length
+      ? el('div', { class: 'bar-rows' }, milestones.map(milestoneRow))
+      : el('p', { class: 'chart-note', text: 'オープンなマイルストンはありません。' })
+  );
+}
+
+function milestoneRow(milestone) {
+  const dueDate = milestone.dueOn ? new Date(milestone.dueOn) : null;
+  const overdue = Boolean(dueDate && dueDate < new Date() && milestone.progressPercentage < 100);
+  const due = dueDate ? `期限 ${dueDate.toLocaleDateString('ja-JP')}` : '期限なし';
+  const title =
+    `${milestone.repo} / ${milestone.title} — Issue ${milestone.closedIssues}件完了 / 全${milestone.totalIssues}件` +
+    ` · オープンPR ${milestone.openPullRequests}` +
+    (milestone.githubProgressPercentage !== null && milestone.githubProgressPercentage !== milestone.progressPercentage
+      ? ` · GitHub 表示の進捗 ${milestone.githubProgressPercentage}%（PRを含む母数）`
+      : '');
+
+  return el('div', { class: 'bar-row', title }, [
+    el('span', { class: 'bar-label' }, [
+      milestone.url
+        ? el('a', { href: milestone.url, target: '_blank', rel: 'noreferrer', text: milestone.title })
+        : el('span', { text: milestone.title }),
+      el('span', { class: 'bar-sub', dataset: overdue ? { tone: 'critical' } : {}, text: `${shortRepo(milestone.repo)} · ${overdue ? `⚠ 期限超過 ${due}` : due}` }),
+    ]),
+    el('div', { class: 'bar-track' }, [el('div', { class: 'bar-fill', style: `width:${milestone.progressPercentage}%` })]),
+    el('span', { class: 'bar-value' }, [
+      el('span', { text: `${milestone.progressPercentage}%` }),
+      el('span', { class: 'bar-sub', text: `${milestone.closedIssues}/${milestone.totalIssues}` }),
+    ]),
+  ]);
+}
+
+function renderLabelChart(items) {
+  const byLabel = new Map();
+  for (const item of items) {
+    const names = item.labels.length ? item.labels.map((label) => label.name) : ['(ラベルなし)'];
+    for (const name of names) {
+      const entry = byLabel.get(name) ?? { name, total: 0, links: new Map() };
+      entry.total += 1;
+      entry.links.set(item.link, (entry.links.get(item.link) ?? 0) + 1);
+      byLabel.set(name, entry);
+    }
+  }
+
+  const rows = [...byLabel.values()].sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'ja'));
+  const top = rows.slice(0, LABEL_ROWS);
+  const rest = rows.slice(LABEL_ROWS);
+  const max = top[0]?.total ?? 1;
+
+  dom.chartLabel.replaceChildren(
+    el('h2', { class: 'chart-title', text: 'ラベル別（表示中）' }),
+    el('p', { class: 'chart-note', text: '色は Issue連携の内訳と同じ。1件が複数ラベルを持つ場合は各ラベルで数える。' }),
+    top.length
+      ? el(
+          'div',
+          { class: 'bar-rows' },
+          top.map((entry) => {
+            const parts = LINK_ORDER.map((key) => ({
+              key,
+              spec: LINK_ITEM[key],
+              count: entry.links.get(key) ?? 0,
+            }));
+            return el('div', { class: 'bar-row', title: `${entry.name}: ${parts.map((p) => `${p.spec.label} ${p.count}`).join(' / ')}` }, [
+              el('span', { class: 'bar-label' }, [el('span', { text: entry.name })]),
+              el('div', { class: 'bar-scale' }, [
+                el('div', { class: 'bar-scale-inner', style: `width:${percent(entry.total, max)}%` }, [
+                  stackBar(parts, entry.total),
+                ]),
+              ]),
+              el('span', { class: 'bar-value', text: String(entry.total) }),
+            ]);
+          })
+        )
+      : el('p', { class: 'chart-note', text: '表示中のものがありません。' }),
+    rest.length
+      ? el('p', {
+          class: 'chart-note',
+          text: `他 ${rest.length} ラベル（${rest.reduce((sum, entry) => sum + entry.total, 0)} 件ぶん）は省略`,
+        })
+      : null
+  );
+}
+
 function renderBucketFilter() {
-  const pullRequests = state.data?.pullRequests ?? [];
+  const pullRequests = allItems();
   dom.bucketFilter.replaceChildren(
     ...BUCKET_ORDER.map((key) => BUCKETS.find((b) => b.key === key))
       .filter(Boolean)
@@ -538,9 +1009,10 @@ function renderBucketFilter() {
 function groupBy(pullRequests, dim) {
   const map = new Map();
   for (const pr of pullRequests) {
-    const group = dim.of(pr);
-    if (!map.has(group.key)) map.set(group.key, { ...group, items: [] });
-    map.get(group.key).items.push(pr);
+    for (const group of groupsOf(dim, pr)) {
+      if (!map.has(group.key)) map.set(group.key, { ...group, items: [] });
+      map.get(group.key).items.push(pr);
+    }
   }
 
   // order 指定があれば 0件のグループも並べる（alwaysShow のときだけ）
@@ -592,7 +1064,7 @@ function renderCollection(pullRequests) {
     dom.list.replaceChildren(
       el('p', {
         class: 'empty',
-        text: state.data.pullRequests.length ? '絞り込み条件に合うPRがありません。' : '表示できるPRがありません。',
+        text: allItems().length ? '絞り込み条件に合うものがありません。' : '表示できる PR / Issue がありません。',
       })
     );
     return;
@@ -643,7 +1115,7 @@ function renderBoard(pullRequests) {
       );
     }
     for (const col of cols) {
-      const items = row.items.filter((pr) => colDim.of(pr).key === col.key);
+      const items = row.items.filter((pr) => groupsOf(colDim, pr).some((group) => group.key === col.key));
       grid.append(
         el(
           'div',
@@ -658,46 +1130,48 @@ function renderBoard(pullRequests) {
   dom.list.replaceChildren(grid);
 }
 
+/**
+ * カードは2段。
+ *   1段目: 状況アイコン（CI / レビュー / Issue連携）+ CI 進捗バー + 番号・時刻・担当
+ *   2段目: タイトル（全文）＋ マイルストン/Issue/ラベルのチップ（タイトルの続きに流す）
+ * 高さを節約しつつ、状態はアイコン（形）+ 数字 + tooltip で分かるようにしてある。
+ * 詳しい内訳（チェック一覧・レビュアー・差分）は開いたときの詳細に出す。
+ */
 function renderCard(pr, { showRepo = true } = {}) {
-  const ci = CI_STATE[pr.ci.state] ?? CI_STATE.none;
-  const review = REVIEW_STATE[pr.review.state] ?? REVIEW_STATE.none;
+  const isIssue = pr.kind === 'issue';
   const tone = cardTone(pr);
   const isOpen = state.open.has(pr.id);
 
   const body = el('div', { class: 'card-body', role: 'button', tabindex: '0', 'aria-expanded': String(isOpen) }, [
-    el('div', { class: 'card-top' }, [
+    el('div', { class: 'card-head' }, [
+      statusIcons(pr),
+      isIssue ? null : ciMeterInline(pr),
+      pr.isDraft ? el('span', { class: 'card-flag', text: 'Draft' }) : null,
+      pr.isMine ? el('span', { class: 'card-flag', text: '自分' }) : null,
+      el('span', { class: 'card-spacer' }),
       showRepo ? el('span', { class: 'pr-repo', text: shortRepo(pr.repo) }) : null,
       el('a', {
         class: 'pr-number',
         href: pr.url,
         target: '_blank',
         rel: 'noreferrer',
-        text: `#${pr.number}`,
+        text: `${isIssue ? 'Issue ' : ''}#${pr.number}`,
         onclick: stopClick,
       }),
-      pr.isDraft ? el('span', { class: 'card-flag', text: 'Draft' }) : null,
-      pr.isMine ? el('span', { class: 'card-flag', text: '自分' }) : null,
-      pr.hasConflict ? el('span', { class: 'card-flag', dataset: { tone: 'critical' }, text: '⚠ コンフリクト' }) : null,
-      el('span', { class: 'card-spacer' }),
+      isIssue ? assigneeAvatars(pr, 2) : reviewerAvatars(pr, 3),
       el('span', { class: 'card-time', title: absoluteTime(pr.updatedAt), text: relativeTime(pr.updatedAt) }),
     ]),
-    el('a', {
-      class: 'card-title',
-      href: pr.url,
-      target: '_blank',
-      rel: 'noreferrer',
-      text: pr.title,
-      title: pr.title,
-      onclick: stopClick,
-    }),
-    el('div', { class: 'card-badges' }, [badge(ci), badge(review)]),
-    ciMeter(pr, ci.tone),
-    el('div', { class: 'card-foot' }, [
-      pr.authorAvatarUrl ? el('img', { class: 'avatar', src: pr.authorAvatarUrl, alt: '', loading: 'lazy' }) : null,
-      el('span', { class: 'card-author', text: pr.author }),
-      el('span', { class: 'card-diff', text: `+${pr.additions} −${pr.deletions}` }),
-      el('span', { class: 'card-spacer' }),
-      reviewerAvatars(pr, 4),
+    el('div', { class: 'card-line' }, [
+      el('a', {
+        class: 'card-title',
+        href: pr.url,
+        target: '_blank',
+        rel: 'noreferrer',
+        text: pr.title,
+        title: pr.title,
+        onclick: stopClick,
+      }),
+      ...metaChipList(pr),
     ]),
   ]);
 
@@ -728,6 +1202,7 @@ function renderRows(pullRequests) {
 }
 
 function renderPr(pr) {
+  const isIssue = pr.kind === 'issue';
   const ci = CI_STATE[pr.ci.state] ?? CI_STATE.none;
   const review = REVIEW_STATE[pr.review.state] ?? REVIEW_STATE.none;
   const isOpen = state.open.has(pr.id);
@@ -740,7 +1215,7 @@ function renderPr(pr) {
         href: pr.url,
         target: '_blank',
         rel: 'noreferrer',
-        text: `#${pr.number}`,
+        text: `${isIssue ? 'Issue ' : ''}#${pr.number}`,
         onclick: stopClick,
       }),
       el('a', {
@@ -751,21 +1226,17 @@ function renderPr(pr) {
         text: pr.title,
         onclick: stopClick,
       }),
-      ...pr.labels.slice(0, 3).map((label) =>
-        el('span', {
-          class: 'label-chip',
-          text: label.name,
-          style: `background:#${label.color}22;border:1px solid #${label.color}66;color:var(--text-secondary)`,
-        })
-      ),
     ]),
+    metaChips(pr, { maxLabels: 4 }),
     el('div', { class: 'pr-meta' }, [
       pr.authorAvatarUrl ? el('img', { class: 'avatar', src: pr.authorAvatarUrl, alt: '', loading: 'lazy' }) : null,
       el('span', { text: pr.author }),
       pr.isMine ? el('span', { class: 'mine', text: '自分' }) : null,
       pr.isDraft ? el('span', { text: 'Draft' }) : null,
-      el('span', { text: `${pr.headRefName} → ${pr.baseRefName}` }),
-      el('span', { class: 'diff-add', text: `+${pr.additions} −${pr.deletions} / ${pr.changedFiles}ファイル` }),
+      isIssue ? null : el('span', { text: `${pr.headRefName} → ${pr.baseRefName}` }),
+      isIssue
+        ? null
+        : el('span', { class: 'diff-add', text: `+${pr.additions} −${pr.deletions} / ${pr.changedFiles}ファイル` }),
       pr.commentCount ? el('span', { text: `コメント ${pr.commentCount}` }) : null,
       el('span', { title: absoluteTime(pr.updatedAt), text: `更新 ${relativeTime(pr.updatedAt)}` }),
       pr.hasConflict ? el('span', { text: '⚠ コンフリクト' }) : null,
@@ -773,17 +1244,23 @@ function renderPr(pr) {
     ]),
   ]);
 
-  const ciCell = el('div', { class: 'cell cell-ci' }, [badge(ci, `${ci.label} (${pr.ci.state})`), ciMeter(pr, ci.tone)]);
+  const ciCell = isIssue
+    ? el('div', { class: 'cell cell-ci' }, [linkBadge(pr)])
+    : el('div', { class: 'cell cell-ci' }, [badge(ci, `${ci.label} (${pr.ci.state})`), ciMeter(pr, ci.tone)]);
 
-  const reviewCell = el('div', { class: 'cell cell-review' }, [
-    badge(review, pr.review.decision ? `reviewDecision: ${pr.review.decision}` : 'ブランチ保護のレビュー必須設定なし'),
-    el('div', { class: 'cell-sub' }, [el('span', { text: reviewSummaryText(pr) }), reviewerAvatars(pr, 5)]),
-  ]);
+  const reviewCell = isIssue
+    ? el('div', { class: 'cell cell-review' }, [
+        el('div', { class: 'cell-sub' }, [el('span', { text: '担当' }), assigneeAvatars(pr, 5)]),
+      ])
+    : el('div', { class: 'cell cell-review' }, [
+        badge(review, pr.review.decision ? `reviewDecision: ${pr.review.decision}` : 'ブランチ保護のレビュー必須設定なし'),
+        el('div', { class: 'cell-sub' }, [el('span', { text: reviewSummaryText(pr) }), reviewerAvatars(pr, 5)]),
+      ]);
 
   const row = el(
     'div',
     { class: 'pr-row', role: 'button', tabindex: '0', 'aria-expanded': String(isOpen) },
-    [head, ciCell, reviewCell, el('span', { class: 'chevron', 'aria-hidden': 'true', text: '▶' })]
+    [head, ciCell, reviewCell, el('span', { class: 'chevron' }, [icon('chevron_right')])]
   );
   bindToggle(row, pr);
 
@@ -796,6 +1273,8 @@ function renderPr(pr) {
 /* ---------------- 詳細（カード/行 共通） ---------------- */
 
 function renderDetails(pr) {
+  if (pr.kind === 'issue') return renderIssueDetails(pr);
+
   const order = { failure: 0, pending: 1, cancelled: 2, neutral: 3, success: 4, skipped: 5 };
   const checks = [...pr.checks].sort(
     (a, b) =>
@@ -813,7 +1292,7 @@ function renderDetails(pr) {
           { class: 'check-list' },
           shown.map((check) =>
             el('li', { class: 'check-item', dataset: { state: check.state } }, [
-              el('span', { class: 'icon', 'aria-hidden': 'true', text: CHECK_ICON[check.state] ?? '–' }),
+              icon(CHECK_ICON[check.state] ?? 'remove', { size: 14 }),
               el('span', {}, [
                 check.workflow ? el('span', { class: 'workflow', text: `${check.workflow} / ` }) : null,
                 check.url
@@ -866,6 +1345,21 @@ function renderDetails(pr) {
         ])
       : el('p', { class: 'detail-note', text: 'レビュアーの割り当てもレビューもありません。' }),
     el('p', { class: 'detail-note', text: `判定: ${pr.statusLabels.join(' / ')} · ${reviewSummaryText(pr)}` }),
+    pr.issues.length
+      ? el('p', { class: 'detail-note' }, [
+          el('span', { text: `紐づく Issue（${pr.issues.length}）: ` }),
+          ...pr.issues.flatMap((issue, index) => [
+            index ? el('span', { text: ' / ' }) : null,
+            el('a', {
+              href: issue.url,
+              target: '_blank',
+              rel: 'noreferrer',
+              text: `#${issue.number} ${issue.title}`,
+              onclick: stopClick,
+            }),
+          ]),
+        ])
+      : el('p', { class: 'detail-note', text: '紐づく Issue: なし（PRのみ）' }),
     el('p', { class: 'detail-note', text: `${pr.headRefName} → ${pr.baseRefName} · ${pr.changedFiles}ファイル変更` }),
     pr.review.lastReviewedAt
       ? el('p', {
@@ -880,21 +1374,99 @@ function renderDetails(pr) {
   return el('div', { class: 'pr-details' }, [checkColumn, reviewColumn]);
 }
 
+/** Issue（PR が無いもの）の詳細。CI もレビューも無いので、代わりに紐づき状況と属性を出す */
+function renderIssueDetails(issue) {
+  const milestone = issue.milestone;
+
+  return el('div', { class: 'pr-details' }, [
+    el('div', {}, [
+      el('h3', { class: 'detail-title', text: 'Issue連携' }),
+      el('p', {
+        class: 'detail-note',
+        text: 'オープンな PR が紐づいていません（未着手）。PR 側で「Fixes #番号」等を書くと、その PR に「Issue+PR」として合流します。',
+      }),
+      el('p', {
+        class: 'detail-note',
+        text: `作成 ${relativeTime(issue.createdAt)}（${absoluteTime(issue.createdAt)}） · 更新 ${relativeTime(issue.updatedAt)}`,
+      }),
+      issue.commentCount ? el('p', { class: 'detail-note', text: `コメント ${issue.commentCount} 件` }) : null,
+    ]),
+    el('div', {}, [
+      el('h3', { class: 'detail-title', text: '担当・マイルストン・ラベル' }),
+      el('div', { class: 'cell-sub' }, [el('span', { text: '担当' }), assigneeAvatars(issue, 8)]),
+      el('p', { class: 'detail-note' }, [
+        el('span', { text: 'マイルストン: ' }),
+        milestone
+          ? milestone.url
+            ? el('a', { href: milestone.url, target: '_blank', rel: 'noreferrer', text: milestone.title, onclick: stopClick })
+            : el('span', { text: milestone.title })
+          : el('span', { text: 'なし' }),
+        milestone?.progressPercentage !== null && milestone?.progressPercentage !== undefined
+          ? el('span', { text: `（進捗 ${milestone.progressPercentage}%）` })
+          : null,
+      ]),
+      issue.labels.length
+        ? el(
+            'div',
+            { class: 'card-chips' },
+            issue.labels.map((label) =>
+              el('span', {
+                class: 'label-chip',
+                text: label.name,
+                style: `background:#${label.color}22;border:1px solid #${label.color}66`,
+              })
+            )
+          )
+        : el('p', { class: 'detail-note', text: 'ラベル: なし' }),
+    ]),
+  ]);
+}
+
 function renderFooter(visible) {
   const data = state.data;
   if (!data) {
     dom.footerInfo.textContent = '';
     return;
   }
-  const parts = [`表示 ${visible.length} / ${data.pullRequests.length} 件`];
+  const parts = [`表示 ${visible.length} / ${allItems().length} 件（PR ${data.pullRequests.length} / Issue ${(data.issues ?? []).length}）`];
   if (data.rateLimit) {
-    parts.push(`API残 ${data.rateLimit.remaining}/${data.rateLimit.limit}（リセット ${relativeTime(data.rateLimit.resetAt)}）`);
+    const cost = data.rateLimit.fetchCost ? `・今回 ${data.rateLimit.fetchCost}点` : '';
+    parts.push(
+      `API残 ${data.rateLimit.remaining}/${data.rateLimit.limit}${cost}（リセット ${relativeTime(data.rateLimit.resetAt)}）`
+    );
   }
   if (data.settings?.excludeAuthors?.length) parts.push(`除外作成者: ${data.settings.excludeAuthors.join(', ')}`);
   dom.footerInfo.textContent = parts.join(' · ');
 }
 
 /* ---------------- 操作 ---------------- */
+
+/** いま表示対象のリポジトリ。filters.repos が空なら全部 */
+function shownRepos() {
+  const all = (state.data?.repos ?? []).map((repo) => repo.nameWithOwner);
+  return new Set(state.filters.repos.length ? state.filters.repos : all);
+}
+
+function toggleRepoFilter(nameWithOwner) {
+  const all = (state.data?.repos ?? []).map((repo) => repo.nameWithOwner);
+  const shown = shownRepos();
+  if (shown.has(nameWithOwner)) shown.delete(nameWithOwner);
+  else shown.add(nameWithOwner);
+  const next = all.filter((name) => shown.has(name));
+  // 全部（または全部外し）は「絞り込みなし」に丸める。何も出ない状態を作らない
+  state.filters.repos = next.length && next.length < all.length ? next : [];
+  saveFilters();
+  render();
+}
+
+/** 監視の ON/OFF。チェックしたらその場で保存して取り直す */
+function toggleRepoEnabled(nameWithOwner) {
+  const disabled = new Set(disabledRepos());
+  if (disabled.has(nameWithOwner)) disabled.delete(nameWithOwner);
+  else disabled.add(nameWithOwner);
+  state.repoDisabledDraft = disabled;
+  saveRepos(dom.repoText.value);
+}
 
 function toggleBucket(key) {
   const buckets = new Set(state.filters.buckets);
@@ -931,6 +1503,17 @@ function restorePreferences() {
     if (!Array.isArray(state.filters.buckets) || !state.filters.buckets.length) {
       state.filters.buckets = BUCKETS.map((b) => b.key);
     }
+    // hideIssues が無い保存値は Issue 対応より前のもの。あとから増えたバケット（issue）を足す
+    if (savedFilters.hideIssues === undefined) {
+      for (const bucket of BUCKETS) {
+        if (!state.filters.buckets.includes(bucket.key)) state.filters.buckets.push(bucket.key);
+      }
+      state.filters.buckets = BUCKETS.filter((b) => state.filters.buckets.includes(b.key)).map((b) => b.key);
+    }
+    // 単一選択（filters.repo）で保存された古い値を複数選択に移す
+    if (!Array.isArray(state.filters.repos)) state.filters.repos = [];
+    if (typeof savedFilters.repo === 'string' && savedFilters.repo) state.filters.repos = [savedFilters.repo];
+    delete state.filters.repo;
   } catch {
     /* 壊れていたら初期値のまま */
   }
@@ -946,6 +1529,7 @@ function restorePreferences() {
   dom.mineOnly.checked = state.filters.mineOnly;
   dom.hideBots.checked = state.filters.hideBots;
   dom.hideDrafts.checked = state.filters.hideDrafts;
+  dom.hideIssues.checked = state.filters.hideIssues;
 }
 
 /* ---------------- 自動更新 ---------------- */
@@ -989,6 +1573,9 @@ function applyTheme(theme) {
 
 restorePreferences();
 applyTheme(localStorage.getItem(THEME_KEY) ?? 'auto');
+// index.html に文字を置かず、アイコンは全部ここから入れる（記号の出どころを1つにするため）
+dom.swapDims.replaceChildren(icon('swap_horiz'));
+dom.theme.replaceChildren(icon('contrast'));
 
 dom.refresh.addEventListener('click', () => load({ refresh: true }));
 dom.autoRefresh.addEventListener('change', resetAutoRefresh);
@@ -1011,17 +1598,12 @@ dom.swapDims.addEventListener('click', () => {
   savePrefs();
   render();
 });
-dom.repoFilter.addEventListener('change', () => {
-  state.filters.repo = dom.repoFilter.value;
-  saveFilters();
-  render();
-});
 dom.search.addEventListener('input', () => {
   state.filters.search = dom.search.value;
   saveFilters();
   render();
 });
-for (const key of ['mineOnly', 'hideBots', 'hideDrafts']) {
+for (const key of ['mineOnly', 'hideBots', 'hideDrafts', 'hideIssues']) {
   dom[key].addEventListener('change', () => {
     state.filters[key] = dom[key].checked;
     saveFilters();
@@ -1029,7 +1611,7 @@ for (const key of ['mineOnly', 'hideBots', 'hideDrafts']) {
   });
 }
 dom.expandAll.addEventListener('click', () => {
-  const visible = applyFilters(state.data?.pullRequests ?? []);
+  const visible = applyFilters(allItems());
   if (visible.every((pr) => state.open.has(pr.id))) state.open.clear();
   else for (const pr of visible) state.open.add(pr.id);
   render();
@@ -1042,6 +1624,7 @@ dom.repoText.addEventListener('input', () => {
 dom.repoSave.addEventListener('click', () => saveRepos(dom.repoText.value));
 dom.repoReset.addEventListener('click', () => {
   state.repoDraft = null;
+  state.repoDisabledDraft = null;
   state.repoStatus = '';
   render();
 });

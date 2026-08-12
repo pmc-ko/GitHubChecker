@@ -25,6 +25,16 @@
   --critical: #d03b3b;
   --idle: #898781;
 
+  /* グラフの系列色（Issue連携の3パターン）。状態色とは別枠にして混ざらないようにしている。
+     ライト/ダークで別の段を使う（両方とも CVD 判定を通した組み合わせ）。
+     series-1=両方 / series-2=Issueのみ / series-3=PRのみ（public/app.js の LINK_ITEM で対応づけ） */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  /* バーの下地と、進捗（単一色ランプ）の塗り */
+  --track: #e1e0d9;
+  --bar: #2a78d6;
+
   --radius: 10px;
   --radius-sm: 6px;
   --font: system-ui, -apple-system, 'Segoe UI', 'Yu Gothic UI', sans-serif;
@@ -43,6 +53,11 @@
     --border: rgba(255, 255, 255, 0.1);
     --border-strong: #383835;
     --link: #3987e5;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --track: #2c2c2a;
+    --bar: #3987e5;
   }
 }
 
@@ -58,6 +73,11 @@
   --border: rgba(255, 255, 255, 0.1);
   --border-strong: #383835;
   --link: #3987e5;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --track: #2c2c2a;
+  --bar: #3987e5;
 }
 
 * {
@@ -259,11 +279,20 @@ a:hover {
 }
 
 .filter-buckets,
+.filter-repos,
 .filter-rest {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+}
+
+/* リポジトリの表示切り替え。取得は止めない（止めるのは監視リポジトリパネル側） */
+.filter-repos {
+  gap: 4px 12px;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
 }
 
 .bucket-chip {
@@ -288,6 +317,173 @@ a:hover {
 .bucket-chip .count {
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 進捗グラフ ---------- */
+/* 棒は細く、データ端だけ角丸4px。積み上げの隙間は面の色で2px空ける。
+   値は必ず文字でも出す（色と長さだけに意味を持たせない）。 */
+
+.progress-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 12px;
+  /* 高さは中身ぶんだけ（横に並ぶグラフの高さを揃えて余白を作らない） */
+  align-items: start;
+}
+
+.chart {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+
+.chart-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 620;
+}
+
+.chart-note {
+  margin: 2px 0 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+/* 積み上げバー1本 */
+.stack {
+  display: flex;
+  gap: 2px;
+  height: 12px;
+  margin: 6px 0;
+}
+.stack-part {
+  min-width: 3px;
+  border-radius: 3px;
+  background: var(--idle);
+}
+.stack-part[data-series='1'] {
+  background: var(--series-1);
+}
+.stack-part[data-series='2'] {
+  background: var(--series-2);
+}
+.stack-part[data-series='3'] {
+  background: var(--series-3);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.legend-key {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+}
+.legend-swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--idle);
+}
+.legend-swatch[data-series='1'] {
+  background: var(--series-1);
+}
+.legend-swatch[data-series='2'] {
+  background: var(--series-2);
+}
+.legend-swatch[data-series='3'] {
+  background: var(--series-3);
+}
+.legend-value {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 横棒の行（マイルストン進捗 / ラベル別） */
+.bar-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: minmax(84px, 40%) minmax(60px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 11px;
+}
+
+.bar-label {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+.bar-label > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar-sub {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.bar-sub[data-tone='critical'] {
+  color: var(--critical);
+}
+
+.bar-track {
+  height: 10px;
+  border-radius: 5px;
+  background: var(--track);
+  overflow: hidden;
+}
+.bar-fill {
+  height: 100%;
+  border-radius: 0 4px 4px 0;
+  background: var(--bar);
+}
+
+/* ラベル別は「件数の比 = 全体の幅」にして、中を3パターンで積み上げる */
+.bar-scale {
+  min-width: 0;
+}
+.bar-scale-inner {
+  min-width: 6px;
+}
+.bar-scale .stack {
+  height: 10px;
+  margin: 0;
+}
+
+.bar-value {
+  display: flex;
+  gap: 4px;
+  align-items: baseline;
+  justify-content: flex-end;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 監視リポジトリパネルの ON/OFF */
+.repo-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-bottom: 8px;
+}
+.repo-toggles .toggle {
+  min-width: 200px;
 }
 
 /* ---------- PR 一覧 ---------- */
@@ -394,8 +590,10 @@ a:hover {
 }
 
 .label-chip {
+  display: inline-block;
   padding: 0 6px;
   border-radius: 999px;
+  color: var(--text-secondary);
   font-size: 10px;
   line-height: 16px;
 }
@@ -413,24 +611,70 @@ a:hover {
   font-size: 12px;
   white-space: nowrap;
 }
-.badge .icon {
-  font-size: 11px;
-  line-height: 1;
+/* Material Symbols（public/icons.js）。塗りは currentColor なので色は文字色で決める */
+.mi {
+  flex: none;
+  fill: currentColor;
+  vertical-align: -3px;
 }
-.badge[data-tone='good'] .icon {
+
+.badge .mi {
+  color: var(--idle);
+}
+.badge[data-tone='good'] .mi {
   color: var(--good);
 }
-.badge[data-tone='warning'] .icon {
+.badge[data-tone='warning'] .mi {
   color: var(--warning);
 }
-.badge[data-tone='serious'] .icon {
+.badge[data-tone='serious'] .mi {
   color: var(--serious);
 }
-.badge[data-tone='critical'] .icon {
+.badge[data-tone='critical'] .mi {
   color: var(--critical);
 }
-.badge[data-tone='idle'] .icon {
+.badge[data-tone='idle'] .mi {
   color: var(--idle);
+}
+/* Issue連携のバッジはグラフと同じ系列色（状態色とは別枠） */
+.badge-series[data-series='1'] .mi {
+  color: var(--series-1);
+}
+.badge-series[data-series='2'] .mi {
+  color: var(--series-2);
+}
+.badge-series[data-series='3'] .mi {
+  color: var(--series-3);
+}
+
+/* マイルストン / 紐づく Issue / ラベルの小さなチップ列 */
+.card-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.chip {
+  display: inline-block;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+.chip-milestone {
+  border-color: var(--bar);
+  color: var(--text-primary);
+}
+.chip-issue {
+  border-color: var(--series-1);
+  color: var(--text-primary);
+}
+.chip-issue:hover {
+  background: var(--surface-3);
 }
 
 .cell {
@@ -493,9 +737,10 @@ a:hover {
 }
 
 .chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--text-muted);
-  font-size: 11px;
-  text-align: center;
   transition: transform 0.12s ease;
 }
 .pr[data-open='true'] .chevron {
@@ -539,21 +784,21 @@ a:hover {
   align-items: baseline;
   font-size: 12px;
 }
-.check-item .icon {
+.check-item .mi {
   text-align: center;
 }
-.check-item[data-state='success'] .icon {
+.check-item[data-state='success'] .mi {
   color: var(--good);
 }
-.check-item[data-state='failure'] .icon {
+.check-item[data-state='failure'] .mi {
   color: var(--critical);
 }
-.check-item[data-state='pending'] .icon {
+.check-item[data-state='pending'] .mi {
   color: var(--warning);
 }
-.check-item[data-state='cancelled'] .icon,
-.check-item[data-state='skipped'] .icon,
-.check-item[data-state='neutral'] .icon {
+.check-item[data-state='cancelled'] .mi,
+.check-item[data-state='skipped'] .mi,
+.check-item[data-state='neutral'] .mi {
   color: var(--idle);
 }
 .check-item .workflow {
@@ -840,6 +1085,11 @@ a:hover {
   border-radius: 0 0 var(--radius-sm) var(--radius-sm);
   background: var(--surface-2);
 }
+/* カードは縮めない。max-height 付きのセル（下）で flex-shrink が効くと
+   件数が多い列でカードが潰れて中身が見えなくなる */
+.pivot-cell > * {
+  flex: 0 0 auto;
+}
 /* 1段カンバン（行の軸=なし）では列ごとにスクロールさせ、列見出しを常に見えるようにする */
 .pivot[data-rowhead='false'] .pivot-cell {
   max-height: calc(100vh - 300px);
@@ -876,18 +1126,94 @@ a:hover {
   border-left-color: var(--critical);
 }
 
+/* カードは2段（1段目=状況、2段目=タイトル+チップ）。高さを詰めるため 1段目は折り返さない */
 .card-body {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding: 8px 9px;
+  gap: 3px;
+  padding: 6px 8px;
   cursor: pointer;
 }
 .card-body:hover {
   background: var(--surface-3);
 }
 
-.card-top,
+.card-head {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.card-head > .pr-repo {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-icons {
+  display: inline-flex;
+  flex: none;
+  gap: 3px;
+  align-items: center;
+}
+
+/* 状況アイコン。形だけで区別できる図形を使い、色は補助（語は tooltip と詳細に出す） */
+.status-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--idle);
+}
+.status-icon[data-tone='good'] {
+  color: var(--good);
+}
+.status-icon[data-tone='warning'] {
+  color: var(--warning);
+}
+.status-icon[data-tone='serious'] {
+  color: var(--serious);
+}
+.status-icon[data-tone='critical'] {
+  color: var(--critical);
+}
+.status-icon[data-series='1'] {
+  color: var(--series-1);
+}
+.status-icon[data-series='2'] {
+  color: var(--series-2);
+}
+.status-icon[data-series='3'] {
+  color: var(--series-3);
+}
+
+/* 1段目に置く細い進捗バー */
+.meter-inline {
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
+  align-items: center;
+}
+.meter-inline .meter {
+  width: 38px;
+}
+.meter-value {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 2段目: タイトルの続きにチップを流す（短ければ2段で収まる） */
+.card-line {
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.card-line .chip,
+.card-line .label-chip {
+  margin-left: 4px;
+  vertical-align: 1px;
+}
+
 .card-foot {
   display: flex;
   flex-wrap: wrap;
@@ -918,37 +1244,13 @@ a:hover {
   white-space: nowrap;
 }
 
+/* タイトルは行数で切らない（何行でもカードを縦に伸ばして全文を見せる） */
 .card-title {
-  display: -webkit-box;
-  overflow: hidden;
   color: var(--text-primary);
   font-size: 13px;
   font-weight: 560;
   line-height: 1.35;
   overflow-wrap: anywhere;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
-}
-
-.card-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-.card-badges .badge {
-  font-size: 11px;
-}
-
-.card-author {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 40%;
-}
-
-.card-diff {
-  font-variant-numeric: tabular-nums;
 }
 
 .card .avatar {

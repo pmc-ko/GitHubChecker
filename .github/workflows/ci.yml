@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22', '24']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # 「ダッシュボード本体は依存パッケージなしで動く」が大原則なので npm install はしない。
+      # ここが落ちたら、src/ か public/ に依存が入り込んだということ。
+      - name: 構文チェック（.mjs 全部）
+        run: git ls-files '*.mjs' | xargs -n1 node --check
+
+      # GitHub API もトークンも使わないテスト（固定データ + DOM スタブ）。
+      # public/app.js は test/ui.test.mjs が実際に import して動かすので、ここで構文も含めて検証される。
+      - name: テスト
+        run: npm test
+
+      - name: アイコン定義（生成物）が読めるか
+        run: >
+          node -e "import('./public/icons.js').then(m => {
+          const n = Object.keys(m.ICON_PATHS).length;
+          if (n < 10) throw new Error('public/icons.js が壊れています: ' + n);
+          console.log('icons: ' + n); })"

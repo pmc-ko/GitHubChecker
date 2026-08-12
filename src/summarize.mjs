@@ -5,6 +5,16 @@
 //   - normalizeChecks() / rollUpChecks() : Actions（チェック）の状態
 //   - summarizeReviews()                 : レビュー結果のサマリ
 //   - classify()                         : 行の優先度（対応が必要 / マージ可 / 待ち / その他）
+//   - summarizeIssue()                   : Issue 1件（PR が無い Issue だけ一覧に出す）
+//   - LINK_STATE                         : PR と Issue の紐づき（PRのみ / 両方 / Issueのみ）
+
+/**
+ * PR と Issue の紐づき。この3パターンが一覧の軸（Issue連携）とグラフの内訳になる。
+ *   pr-only    : PR だけ（Issue に紐づいていない）
+ *   both       : PR と Issue の両方がある（PR 側に Issue をぶら下げて1件で出す）
+ *   issue-only : Issue だけ（オープンな PR がまだ無い＝未着手）
+ */
+export const LINK_STATE = { PR_ONLY: 'pr-only', BOTH: 'both', ISSUE_ONLY: 'issue-only' };
 
 /** チェックの状態 → 表示上の1語 */
 const CHECK_CONCLUSION = {
@@ -211,6 +221,24 @@ export function classify({ pr, ci, review, hasConflict }) {
   return { bucket, order: order[bucket], labels: reasons.map((r) => r.label) };
 }
 
+/** ラベル配列の整形（PR / Issue で共通） */
+function pickLabels(node) {
+  return (node?.labels?.nodes ?? []).map((label) => ({ name: label.name, color: label.color }));
+}
+
+/** マイルストンの整形。進捗率は GitHub が計算した値をそのまま使う */
+function pickMilestone(node) {
+  const milestone = node?.milestone;
+  if (!milestone) return null;
+  return {
+    title: milestone.title,
+    url: milestone.url ?? null,
+    dueOn: milestone.dueOn ?? null,
+    progressPercentage:
+      typeof milestone.progressPercentage === 'number' ? Math.round(milestone.progressPercentage) : null,
+  };
+}
+
 /** PR 1件を画面用オブジェクトに変換する */
 export function summarizePullRequest(pr, repository, viewer) {
   const commit = pr.commits?.nodes?.[0]?.commit ?? null;
@@ -220,7 +248,26 @@ export function summarizePullRequest(pr, repository, viewer) {
   const hasConflict = pr.mergeable === 'CONFLICTING';
   const classification = classify({ pr, ci, review, hasConflict });
 
+  // 「Fixes #123」等で紐づいた Issue。ここが空なら PRのみ、あれば両方
+  const issues = (pr.closingIssuesReferences?.nodes ?? []).map((issue) => {
+    const repo = issue.repository?.nameWithOwner ?? repository.nameWithOwner;
+    return {
+      key: issueKey(repo, issue.number),
+      repo,
+      number: issue.number,
+      title: issue.title,
+      url: issue.url,
+      state: issue.state,
+      labels: pickLabels(issue),
+      milestone: pickMilestone(issue),
+    };
+  });
+
   return {
+    kind: 'pr',
+    link: issues.length ? LINK_STATE.BOTH : LINK_STATE.PR_ONLY,
+    issues,
+    milestone: pickMilestone(pr),
     id: `${repository.nameWithOwner}#${pr.number}`,
     repo: repository.nameWithOwner,
     repoUrl: repository.url,
@@ -239,7 +286,7 @@ export function summarizePullRequest(pr, repository, viewer) {
     deletions: pr.deletions,
     changedFiles: pr.changedFiles,
     commentCount: pr.comments?.totalCount ?? 0,
-    labels: (pr.labels?.nodes ?? []).map((label) => ({ name: label.name, color: label.color })),
+    labels: pickLabels(pr),
     mergeable: pr.mergeable,
     hasConflict,
     headCommit: commit
@@ -263,16 +310,73 @@ export function summarizePullRequest(pr, repository, viewer) {
   };
 }
 
+export function issueKey(repo, number) {
+  return `${repo}#${number}`;
+}
+
+/**
+ * Issue 1件を画面用オブジェクトに変換する。
+ * PR と同じ一覧に並べるので、PR にしか無いもの（CI・レビュー）は「無し」で埋めて形を揃える。
+ * バケットは 'issue' 固定（`public/app.js` の BUCKETS にも同じキーがある）。
+ */
+export function summarizeIssue(issue, repository, viewer) {
+  return {
+    kind: 'issue',
+    link: LINK_STATE.ISSUE_ONLY,
+    issues: [],
+    milestone: pickMilestone(issue),
+    id: `${repository.nameWithOwner}!${issue.number}`,
+    repo: repository.nameWithOwner,
+    repoUrl: repository.url,
+    number: issue.number,
+    title: issue.title,
+    url: issue.url,
+    isDraft: false,
+    author: issue.author?.login ?? 'ghost',
+    authorAvatarUrl: issue.author?.avatarUrl ?? null,
+    isMine: Boolean(viewer && issue.author?.login === viewer),
+    assignees: (issue.assignees?.nodes ?? []).map((user) => ({ login: user.login, avatarUrl: user.avatarUrl })),
+    createdAt: issue.createdAt,
+    updatedAt: issue.updatedAt,
+    baseRefName: null,
+    headRefName: null,
+    additions: 0,
+    deletions: 0,
+    changedFiles: 0,
+    commentCount: issue.comments?.totalCount ?? 0,
+    labels: pickLabels(issue),
+    mergeable: null,
+    hasConflict: false,
+    headCommit: null,
+    pushedAfterReview: false,
+    ci: { state: 'none', counts: {}, total: 0, relevant: 0, passed: 0, failing: [], running: [] },
+    checks: [],
+    review: {
+      state: 'none',
+      decision: null,
+      reviewers: [],
+      requested: [],
+      counts: { approved: 0, changesRequested: 0, commented: 0, dismissed: 0, requested: 0 },
+      lastReviewedAt: null,
+    },
+    bucket: 'issue',
+    bucketOrder: 4,
+    statusLabels: ['PRなし'],
+  };
+}
+
 /** 取得結果（複数リポジトリ）をまとめて一覧＋集計にする */
 export function buildDashboard(repoResults, config) {
   const excludeAuthors = new Set((config.excludeAuthors ?? []).map((a) => a.toLowerCase()));
   const pullRequests = [];
+  const rawIssues = [];
+  const milestones = [];
   const repos = [];
   let viewer = null;
 
   for (const result of repoResults) {
     if (result.error) {
-      repos.push({ nameWithOwner: result.repo.nameWithOwner, error: result.error, count: 0 });
+      repos.push({ nameWithOwner: result.repo.nameWithOwner, error: result.error, count: 0, issueCount: 0 });
       continue;
     }
     viewer = result.viewer ?? viewer;
@@ -284,17 +388,62 @@ export function buildDashboard(repoResults, config) {
       pullRequests.push(summary);
       kept += 1;
     }
+
+    // Issue は PR との紐づきを見てから絞るので、いったん全部持っておく
+    for (const issue of result.issues ?? []) {
+      const summary = summarizeIssue(issue, result.repository, result.viewer);
+      if (excludeAuthors.has(summary.author.toLowerCase())) continue;
+      rawIssues.push(summary);
+    }
+
+    for (const milestone of result.milestones ?? []) {
+      const closed = milestone.closedIssues?.totalCount ?? 0;
+      const open = milestone.openIssues?.totalCount ?? 0;
+      milestones.push({
+        repo: result.repository.nameWithOwner,
+        title: milestone.title,
+        url: milestone.url ?? null,
+        dueOn: milestone.dueOn ?? null,
+        openIssues: open,
+        closedIssues: closed,
+        totalIssues: open + closed,
+        openPullRequests: milestone.openPullRequests?.totalCount ?? 0,
+        /**
+         * 進捗率は「クローズ済み Issue ÷ Issue 全体」で出す。
+         * GitHub の画面に出る progressPercentage は PR も母数に入るため一致しない。
+         * 表示している件数と割合を必ず一致させたいので、こちらを主にして GitHub 値は別に持つ。
+         */
+        progressPercentage: open + closed > 0 ? Math.round((closed / (open + closed)) * 100) : 0,
+        githubProgressPercentage:
+          typeof milestone.progressPercentage === 'number' ? Math.round(milestone.progressPercentage) : null,
+      });
+    }
+
     repos.push({
       nameWithOwner: result.repository.nameWithOwner,
       url: result.repository.url,
       error: null,
       count: kept,
       totalOpen: result.totalCount,
+      issueCount: (result.issues ?? []).length,
+      issueTotalOpen: result.issueTotalCount ?? 0,
+      issueError: result.issueError ?? null,
     });
   }
 
-  pullRequests.sort(
-    (a, b) => a.bucketOrder - b.bucketOrder || (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0)
+  // PR が紐づいている Issue は PR 側に出るので、一覧に出す Issue から除く（重複させない）
+  const linked = new Set(pullRequests.flatMap((pr) => pr.issues.map((issue) => issue.key)));
+  const issues = rawIssues.filter((issue) => !linked.has(issueKey(issue.repo, issue.number)));
+
+  const byUpdated = (a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0);
+  pullRequests.sort((a, b) => a.bucketOrder - b.bucketOrder || byUpdated(a, b));
+  issues.sort(byUpdated);
+  milestones.sort(
+    (a, b) =>
+      (a.dueOn ? 0 : 1) - (b.dueOn ? 0 : 1) ||
+      String(a.dueOn).localeCompare(String(b.dueOn)) ||
+      a.repo.localeCompare(b.repo) ||
+      a.title.localeCompare(b.title)
   );
 
   const stats = {
@@ -310,9 +459,15 @@ export function buildDashboard(repoResults, config) {
     approved: pullRequests.filter((pr) => pr.review.state === 'approved').length,
     conflict: pullRequests.filter((pr) => pr.hasConflict).length,
     mine: pullRequests.filter((pr) => pr.isMine).length,
+    // Issue との紐づき（3パターン）。prOnly + both = PR 総数
+    prOnly: pullRequests.filter((pr) => pr.link === LINK_STATE.PR_ONLY).length,
+    both: pullRequests.filter((pr) => pr.link === LINK_STATE.BOTH).length,
+    issueOnly: issues.length,
+    linkedIssues: linked.size,
+    milestoneCount: milestones.length,
   };
 
-  return { viewer, repos, pullRequests, stats };
+  return { viewer, repos, pullRequests, issues, milestones, stats };
 }
 
 function durationSeconds(startedAt, completedAt) {

@@ -3,7 +3,10 @@
   "repos": [
     "owner/name"
   ],
+  "disabledRepos": [],
   "maxPrsPerRepo": 100,
+  "includeIssues": true,
+  "maxIssuesPerRepo": 100,
   "cacheSeconds": 45,
   "refreshSeconds": 60,
   "excludeAuthors": [],

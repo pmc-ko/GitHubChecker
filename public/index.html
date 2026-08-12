@@ -24,7 +24,7 @@
           <input type="checkbox" id="autoRefresh" checked />
           <span id="autoRefreshLabel">自動</span>
         </label>
-        <button type="button" id="theme" class="button button-icon" title="テーマ切り替え">◐</button>
+        <button type="button" id="theme" class="button button-icon" title="テーマ切り替え" aria-label="テーマ切り替え"></button>
       </div>
     </header>
 
@@ -34,22 +34,30 @@
 
     <section class="filters" aria-label="絞り込み">
       <div class="filter-buckets" id="bucketFilter" role="group" aria-label="状態で絞り込み"></div>
+      <div class="filter-repos" id="repoFilter" role="group" aria-label="リポジトリで絞り込み"></div>
       <div class="filter-rest">
-        <select id="repoFilter" class="control" aria-label="リポジトリで絞り込み"></select>
         <input type="search" id="search" class="control" placeholder="タイトル・作成者・ブランチで検索" aria-label="検索" />
         <label class="toggle"><input type="checkbox" id="mineOnly" /> 自分のPRのみ</label>
         <label class="toggle"><input type="checkbox" id="hideBots" /> bot除外</label>
         <label class="toggle"><input type="checkbox" id="hideDrafts" /> Draft除外</label>
+        <label class="toggle" title="PR が無い Issue を一覧から隠す"><input type="checkbox" id="hideIssues" /> Issue除外</label>
         <button type="button" id="expandAll" class="button button-quiet">全部展開</button>
       </div>
     </section>
 
+    <details class="panel" id="progressPanel" open>
+      <summary id="progressSummary">進捗</summary>
+      <div class="panel-body progress-grid">
+        <div class="chart" id="chartLink"></div>
+        <div class="chart" id="chartMilestone"></div>
+        <div class="chart" id="chartLabel"></div>
+      </div>
+    </details>
+
     <section class="pivot-controls" id="pivotControls" aria-label="カンバンの軸">
       <span class="pivot-controls-label">軸</span>
       <label class="axis">列 <select id="colDim" class="control" aria-label="列の軸"></select></label>
-      <button type="button" id="swapDims" class="button button-icon" title="行と列を入れ替える" aria-label="行と列を入れ替える">
-        ⇄
-      </button>
+      <button type="button" id="swapDims" class="button button-icon" title="行と列を入れ替える" aria-label="行と列を入れ替える"></button>
       <label class="axis">行 <select id="rowDim" class="control" aria-label="行の軸"></select></label>
     </section>
 
@@ -57,9 +65,14 @@
       <summary id="repoSummary">監視リポジトリ</summary>
       <div class="panel-body">
         <p class="panel-note">
-          1行に1つ。<code>owner/name</code> か GitHub の URL。保存すると <code>config.json</code> が書き換わり、すぐ再取得します。
+          チェックを外したリポジトリは<strong>取得しません</strong>（候補として <code>config.json</code> に残ります）。
+          チェックの変更はその場で保存され、下の入力欄の内容も一緒に保存されます。
         </p>
-        <textarea id="repoText" class="control panel-text" rows="8" spellcheck="false" aria-label="監視リポジトリ"></textarea>
+        <div class="repo-toggles" id="repoToggles" role="group" aria-label="監視するリポジトリ"></div>
+        <p class="panel-note">
+          追加・削除は1行に1つ。<code>owner/name</code> か GitHub の URL。保存すると <code>config.json</code> が書き換わり、すぐ再取得します。
+        </p>
+        <textarea id="repoText" class="control panel-text" rows="8" spellcheck="false" aria-label="監視リポジトリの候補"></textarea>
         <div class="panel-actions">
           <button type="button" id="repoSave" class="button">保存して再取得</button>
           <button type="button" id="repoReset" class="button button-quiet">元に戻す</button>

@@ -1,16 +1,27 @@
 {
   "name": "github-pr-checker",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "GitHub PR の Actions 状況とレビュー状況を一覧監視するローカルダッシュボード",
+  "license": "AGPL-3.0-only",
   "engines": {
     "node": ">=20"
   },
+  "main": "electron/main.mjs",
   "scripts": {
     "start": "node src/server.mjs",
+    "stop": "node src/stop.mjs",
     "dev": "node --watch src/server.mjs",
     "dump": "node src/dump.mjs",
-    "smoke": "node test/smoke.mjs"
+    "test": "node --test test/summarize.test.mjs test/ui.test.mjs",
+    "smoke": "node test/smoke.mjs",
+    "app": "electron .",
+    "app:icon": "node electron/make-icon.mjs",
+    "icons": "node tools/make-icons.mjs",
+    "app:package": "npx --yes @electron/packager . PRMonitor --overwrite --out dist --icon electron/icon.ico --ignore \"^/(dist|test|tools|[.]claude)\""
+  },
+  "devDependencies": {
+    "electron": "^43.4.0"
   }
 }

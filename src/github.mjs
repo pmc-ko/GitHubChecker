@@ -1,7 +1,13 @@
 // GitHub GraphQL API クライアント。
 // 「1リポジトリのオープンPR + 最新コミットのチェック結果 + レビュー」を1クエリで取る。
-// 取得したい項目を増やしたいときは PR_QUERY の GraphQL を編集し、
+// Issue とマイルストンは別クエリ（ISSUE_QUERY）で1リポジトリ1回だけ取る。
+// 取得したい項目を増やしたいときは PR_QUERY / ISSUE_QUERY の GraphQL を編集し、
 // 整形は src/summarize.mjs 側で行う（このファイルは通信と生データの責務だけ）。
+//
+// ★ GraphQL のレート制限（5000点/時）は「要求したノード数」で決まる。
+//   ネストした connection の first を増やすと掛け算で効くので、安易に増やさないこと。
+//   目安: pullRequests(first:N) × (labels + reviewRequests + latestReviews + contexts + …) / 100 点。
+//   1回の取得コストは画面のフッタに「今回 n点」として出る。
 
 const ENDPOINT = 'https://api.github.com/graphql';
 
@@ -47,17 +53,40 @@ const PR_QUERY = /* GraphQL */ `
             login
             avatarUrl(size: 48)
           }
-          labels(first: 20) {
+          labels(first: 10) {
             nodes {
               name
               color
+            }
+          }
+          milestone {
+            title
+            url
+            dueOn
+            progressPercentage
+          }
+          # この PR がクローズする Issue（「Fixes #123」等で紐づいたもの）
+          closingIssuesReferences(first: 5) {
+            totalCount
+            nodes {
+              number
+              title
+              url
+              state
+              repository {
+                nameWithOwner
+              }
+              milestone {
+                title
+                url
+              }
             }
           }
           comments {
             totalCount
           }
           reviewDecision
-          reviewRequests(first: 20) {
+          reviewRequests(first: 10) {
             nodes {
               requestedReviewer {
                 __typename
@@ -79,7 +108,7 @@ const PR_QUERY = /* GraphQL */ `
               }
             }
           }
-          latestReviews(first: 30) {
+          latestReviews(first: 15) {
             nodes {
               state
               submittedAt
@@ -98,7 +127,7 @@ const PR_QUERY = /* GraphQL */ `
                 messageHeadline
                 statusCheckRollup {
                   state
-                  contexts(first: 100) {
+                  contexts(first: 50) {
                     totalCount
                     nodes {
                       __typename
@@ -131,6 +160,76 @@ const PR_QUERY = /* GraphQL */ `
                 }
               }
             }
+          }
+        }
+      }
+    }
+  }
+`;
+
+// Issue とマイルストン。PR 側は closingIssuesReferences で Issue に紐づくので、
+// ここでは「Issue の一覧」と「マイルストンの進捗（クローズ済みを含む件数）」を取る。
+const ISSUE_QUERY = /* GraphQL */ `
+  query Issues($owner: String!, $name: String!, $first: Int!, $milestones: Int!) {
+    rateLimit {
+      cost
+      remaining
+      limit
+      resetAt
+    }
+    repository(owner: $owner, name: $name) {
+      nameWithOwner
+      url
+      issues(states: OPEN, first: $first, orderBy: { field: UPDATED_AT, direction: DESC }) {
+        totalCount
+        nodes {
+          number
+          title
+          url
+          state
+          createdAt
+          updatedAt
+          author {
+            login
+            avatarUrl(size: 48)
+          }
+          assignees(first: 5) {
+            nodes {
+              login
+              avatarUrl(size: 48)
+            }
+          }
+          labels(first: 10) {
+            nodes {
+              name
+              color
+            }
+          }
+          milestone {
+            title
+            url
+            dueOn
+            progressPercentage
+          }
+          comments {
+            totalCount
+          }
+        }
+      }
+      milestones(states: OPEN, first: $milestones, orderBy: { field: DUE_DATE, direction: ASC }) {
+        nodes {
+          title
+          url
+          dueOn
+          progressPercentage
+          openIssues: issues(states: OPEN) {
+            totalCount
+          }
+          closedIssues: issues(states: CLOSED) {
+            totalCount
+          }
+          openPullRequests: pullRequests(states: OPEN) {
+            totalCount
           }
         }
       }
@@ -188,7 +287,8 @@ export async function fetchRepoPullRequests(token, repo, { maxPrs = 100 } = {}) 
   let totalCount = 0;
 
   while (pullRequests.length < maxPrs) {
-    const first = Math.min(50, maxPrs - pullRequests.length);
+    // 1ページ25件。first を増やすとレート制限のコストが比例して増える（先頭のコメント参照）
+    const first = Math.min(25, maxPrs - pullRequests.length);
     const data = await graphql(token, PR_QUERY, {
       owner: repo.owner,
       name: repo.name,
@@ -212,4 +312,28 @@ export async function fetchRepoPullRequests(token, repo, { maxPrs = 100 } = {}) 
   }
 
   return { repository, pullRequests, totalCount, viewer, rateLimit };
+}
+
+/**
+ * 1リポジトリのオープン Issue とオープンなマイルストンを取る（ページングしない）。
+ * @returns {{ issues: object[], issueTotalCount: number, milestones: object[], rateLimit: object }}
+ */
+export async function fetchRepoIssues(token, repo, { maxIssues = 100, maxMilestones = 20 } = {}) {
+  const data = await graphql(token, ISSUE_QUERY, {
+    owner: repo.owner,
+    name: repo.name,
+    first: Math.min(100, maxIssues),
+    milestones: maxMilestones,
+  });
+
+  if (!data.repository) {
+    throw new Error(`リポジトリ ${repo.nameWithOwner} が見つかりません（権限不足の可能性があります）`);
+  }
+
+  return {
+    issues: data.repository.issues?.nodes ?? [],
+    issueTotalCount: data.repository.issues?.totalCount ?? 0,
+    milestones: data.repository.milestones?.nodes ?? [],
+    rateLimit: data.rateLimit ?? null,
+  };
 }

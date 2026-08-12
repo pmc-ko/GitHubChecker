@@ -1,0 +1,55 @@
+name: Release
+
+# v1.2.3 のようなタグを push するとデスクトップアプリを組んで Release に添付する。
+#   git tag v0.2.0 && git push origin v0.2.0
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'リリースするタグ（既にあるもの）'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # ここだけは electron が要るので install する（ダッシュボード本体は依存なしのまま）
+      - run: npm ci
+
+      - name: テスト
+        run: npm test
+
+      - name: Windows 版を組む
+        run: npm run app:package
+
+      - name: zip にまとめる
+        shell: pwsh
+        run: |
+          $tag = "${{ inputs.tag || github.ref_name }}"
+          Compress-Archive -Path dist/PRMonitor-win32-x64/* -DestinationPath "PRMonitor-win32-x64-$tag.zip"
+          Get-Item "PRMonitor-win32-x64-$tag.zip" | Select-Object Name, Length
+
+      - name: Release を作って添付する
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "PR Monitor $TAG" --generate-notes
+          fi
+          gh release upload "$TAG" "PRMonitor-win32-x64-$TAG.zip" --clobber

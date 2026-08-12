@@ -3,6 +3,7 @@
 //   GET  /api/dashboard          → PR一覧と集計の JSON（画面はこれをポーリングするだけ）
 //   GET  /api/dashboard?refresh=1 → キャッシュを無視して取り直す
 //   POST /api/config/repos       → 監視リポジトリを config.json に保存（画面から編集用）
+//   POST /api/shutdown           → サーバを終了（pr-monitor-stop.cmd から叩く）
 //
 // 127.0.0.1 のみで待ち受ける。依存パッケージなし。
 // `npm run dev` なら --watch でソース変更時に自動再起動する。
@@ -13,8 +14,9 @@ import { extname, join, normalize, sep } from 'node:path';
 import { spawn } from 'node:child_process';
 import { loadConfig, saveConfigPatch, parseRepos, ROOT } from './config.mjs';
 import { resolveToken } from './token.mjs';
-import { fetchRepoPullRequests } from './github.mjs';
+import { fetchRepoPullRequests, fetchRepoIssues } from './github.mjs';
 import { buildDashboard } from './summarize.mjs';
+import { APP_ID, baseUrl, isOurServer } from './probe.mjs';
 
 const PUBLIC_DIR = join(ROOT, 'public');
 const MIME = {
@@ -66,10 +68,29 @@ async function fetchAll(config, token) {
     while (queue.length) {
       const repo = queue.shift();
       try {
-        const result = await fetchRepoPullRequests(token, repo, { maxPrs: config.maxPrsPerRepo });
-        results.push({ repo, ...result });
+        const prs = await fetchRepoPullRequests(token, repo, { maxPrs: config.maxPrsPerRepo });
+        // Issue 側は別クエリ。落ちても PR の一覧は出せるように分けて受ける
+        let issues = { issues: [], issueTotalCount: 0, milestones: [], rateLimit: null, issueError: null };
+        if (config.includeIssues) {
+          try {
+            issues = await fetchRepoIssues(token, repo, { maxIssues: config.maxIssuesPerRepo });
+          } catch (err) {
+            issues = { issues: [], issueTotalCount: 0, milestones: [], rateLimit: null, issueError: err.message };
+          }
+        }
+        results.push({
+          repo,
+          ...prs,
+          issues: issues.issues,
+          issueTotalCount: issues.issueTotalCount,
+          milestones: issues.milestones,
+          issueError: issues.issueError ?? null,
+          // 残量は新しい方（後に叩いた方）を採り、コストは両方の合計を持つ
+          rateLimit: issues.rateLimit ?? prs.rateLimit,
+          cost: (prs.rateLimit?.cost ?? 0) + (issues.rateLimit?.cost ?? 0),
+        });
       } catch (err) {
-        results.push({ repo, error: err.message, pullRequests: [] });
+        results.push({ repo, error: err.message, pullRequests: [], issues: [], milestones: [], cost: 0 });
       }
     }
   }
@@ -84,7 +105,14 @@ async function fetchAll(config, token) {
 
 async function getDashboard({ refresh = false } = {}) {
   const config = await loadConfig();
-  const cacheKey = JSON.stringify([config.repos.map((r) => r.nameWithOwner), config.maxPrsPerRepo, config.excludeAuthors, config.excludeDrafts]);
+  const cacheKey = JSON.stringify([
+    config.repos.map((r) => r.nameWithOwner),
+    config.maxPrsPerRepo,
+    config.excludeAuthors,
+    config.excludeDrafts,
+    config.includeIssues,
+    config.maxIssuesPerRepo,
+  ]);
   const now = Date.now();
 
   if (!refresh && cache && cache.key === cacheKey && now - cache.at < config.cacheSeconds * 1000) {
@@ -100,6 +128,8 @@ async function getDashboard({ refresh = false } = {}) {
       viewer: null,
       repos: [],
       pullRequests: [],
+      issues: [],
+      milestones: [],
       stats: emptyStats(),
       warning: 'config.json の repos が空です。監視したいリポジトリを "owner/name" 形式で追加してください。',
     };
@@ -109,7 +139,11 @@ async function getDashboard({ refresh = false } = {}) {
   const repoResults = await fetchAll(config, token);
   applyMergeableMemo(repoResults);
   const dashboard = buildDashboard(repoResults, config);
-  const rateLimit = repoResults.find((r) => r.rateLimit)?.rateLimit ?? null;
+  // 残量は最後に分かった値、fetchCost は今回の取得で使った合計点（設定を詰めるときの目安）
+  const latest = [...repoResults].reverse().find((r) => r.rateLimit)?.rateLimit ?? null;
+  const rateLimit = latest
+    ? { ...latest, fetchCost: repoResults.reduce((sum, r) => sum + (r.cost ?? 0), 0) }
+    : null;
 
   const payload = {
     fetchedAt: new Date(now).toISOString(),
@@ -127,8 +161,10 @@ function publicSettings(config) {
     refreshSeconds: config.refreshSeconds,
     cacheSeconds: config.cacheSeconds,
     repos: config.repos.map((repo) => repo.nameWithOwner),
+    disabledRepos: config.disabledRepos.map((repo) => repo.nameWithOwner),
     excludeAuthors: config.excludeAuthors,
     excludeDrafts: config.excludeDrafts,
+    includeIssues: config.includeIssues,
   };
 }
 
@@ -136,6 +172,7 @@ function emptyStats() {
   return {
     total: 0, action: 0, mergeable: 0, waiting: 0, other: 0,
     ciFailure: 0, ciPending: 0, changesRequested: 0, reviewRequired: 0, approved: 0, conflict: 0, mine: 0,
+    prOnly: 0, both: 0, issueOnly: 0, linkedIssues: 0, milestoneCount: 0,
   };
 }
 
@@ -192,7 +229,23 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
 
   // 二重起動の判定用（GitHub API は叩かない）
-  if (url.pathname === '/api/ping') return sendJson(res, 200, { app: 'pr-monitor' });
+  if (url.pathname === '/api/ping') return sendJson(res, 200, { app: APP_ID, pid: process.pid });
+
+  // 停止用。書き込み API と同じくローカルからのみ受け付ける
+  if (url.pathname === '/api/shutdown') {
+    if (req.method !== 'POST') return sendJson(res, 405, { error: 'POST を使ってください' });
+    if (!isLocalRequest(req)) return sendJson(res, 403, { error: 'ローカルからのみ停止できます' });
+    sendJson(res, 200, { stopping: true });
+    console.log('停止要求を受け取りました。終了します。');
+    // 返し切ってから閉じる。keep-alive の接続が残ると close() が返らないので明示的に切る
+    res.on('finish', () => {
+      setTimeout(() => {
+        server.closeAllConnections();
+        server.close(() => process.exit(0));
+      }, 100);
+    });
+    return;
+  }
 
   if (url.pathname === '/api/config/repos') {
     if (req.method !== 'POST') return sendJson(res, 405, { error: 'POST を使ってください' });
@@ -201,11 +254,25 @@ const server = createServer(async (req, res) => {
       const body = await readJsonBody(req);
       if (!Array.isArray(body.repos)) throw new Error('repos は配列で送ってください');
       if (body.repos.length > 100) throw new Error('リポジトリは 100 個までにしてください');
-      const repos = parseRepos(body.repos).map((repo) => repo.nameWithOwner);
-      await saveConfigPatch({ repos });
+
+      // repos = 候補すべて、disabledRepos = そのうちチェックを外したもの。
+      // 正規化してから引き算するので、画面側は URL 貼り付けのままでも送れる。
+      const candidates = parseRepos(body.repos);
+      const patch = {};
+      if (body.disabledRepos === undefined) {
+        patch.repos = candidates.map((repo) => repo.nameWithOwner);
+      } else {
+        if (!Array.isArray(body.disabledRepos)) throw new Error('disabledRepos は配列で送ってください');
+        const off = new Set(parseRepos(body.disabledRepos).map((repo) => repo.nameWithOwner));
+        patch.repos = candidates.filter((repo) => !off.has(repo.nameWithOwner)).map((repo) => repo.nameWithOwner);
+        patch.disabledRepos = candidates.filter((repo) => off.has(repo.nameWithOwner)).map((repo) => repo.nameWithOwner);
+      }
+
+      await saveConfigPatch(patch);
       cache = null; // 次の取得で必ず取り直す
-      console.log(`監視対象を更新: ${repos.join(', ') || '(なし)'}`);
-      return sendJson(res, 200, { repos });
+      console.log(`監視対象を更新: ${patch.repos.join(', ') || '(なし)'}`);
+      if (patch.disabledRepos?.length) console.log(`監視を止めた: ${patch.disabledRepos.join(', ')}`);
+      return sendJson(res, 200, { repos: patch.repos, disabledRepos: patch.disabledRepos ?? [] });
     } catch (err) {
       return sendJson(res, 400, { error: err.message });
     }
@@ -231,7 +298,7 @@ const config = await loadConfig();
 const port = Number(process.env.PORT ?? config.port);
 
 server.listen(port, '127.0.0.1', () => {
-  const url = `http://127.0.0.1:${port}/`;
+  const url = baseUrl(port);
   console.log(`GitHub PR Checker: ${url}`);
   console.log(`監視対象: ${config.repos.map((r) => r.nameWithOwner).join(', ') || '(config.json の repos が空)'}`);
   if (!process.argv.includes('--no-open')) openBrowser(url);
@@ -241,7 +308,7 @@ server.on('error', async (err) => {
   if (err.code !== 'EADDRINUSE') throw err;
 
   // 既に起動している場合は二重起動せず、そのダッシュボードをブラウザで開くだけにする
-  const url = `http://127.0.0.1:${port}/`;
+  const url = baseUrl(port);
   if (await isOurServer(url)) {
     console.log(`既に起動しています。ブラウザで開きます: ${url}`);
     if (!process.argv.includes('--no-open')) openBrowser(url);
@@ -251,18 +318,6 @@ server.on('error', async (err) => {
   console.error(`ポート ${port} は別のアプリが使用中です。config.json の port を変えてください。`);
   process.exit(1);
 });
-
-/** そのポートで動いているのが自分（PR Monitor）かどうかを確かめる */
-async function isOurServer(url) {
-  try {
-    const response = await fetch(new URL('/api/ping', url), { signal: AbortSignal.timeout(3000) });
-    if (!response.ok) return false;
-    const payload = await response.json();
-    return payload.app === 'pr-monitor';
-  } catch {
-    return false;
-  }
-}
 
 function openBrowser(url) {
   try {

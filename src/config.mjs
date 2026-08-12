@@ -14,12 +14,25 @@ const DEFAULTS = {
   port: 8787,
   /** 監視対象リポジトリ。"owner/name" の配列 */
   repos: [],
+  /**
+   * 監視を止めているリポジトリ。画面のチェックを外したものがここに来る。
+   * 候補として残るだけで GitHub には問い合わせない（repos に入っていれば有効が勝つ）。
+   */
+  disabledRepos: [],
   /** 1リポジトリあたり取得する最大オープンPR数（更新日時の新しい順） */
   maxPrsPerRepo: 100,
-  /** GitHub API の結果をこの秒数キャッシュする（連打してもAPIを叩かない） */
-  cacheSeconds: 45,
+  /** Issue とマイルストンも取る（PR との紐づき・進捗グラフに使う）。false で問い合わせ自体をしない */
+  includeIssues: true,
+  /** 1リポジトリあたり取得する最大オープン Issue 数（更新日時の新しい順） */
+  maxIssuesPerRepo: 100,
+  /**
+   * GitHub API の結果をこの秒数キャッシュする（連打してもAPIを叩かない）。
+   * GraphQL は 5000点/時。1回の取得コストは画面のフッタに出るので、
+   * 「コスト × 3600/refreshSeconds」が 5000 を超えないように決める。
+   */
+  cacheSeconds: 120,
   /** 画面の自動リロード間隔（秒）。0 で自動リロード無効 */
-  refreshSeconds: 60,
+  refreshSeconds: 300,
   /** 一覧から常に除外する作成者（例: "dependabot[bot]"） */
   excludeAuthors: [],
   /** true にすると Draft PR を一覧から除外する */
@@ -38,6 +51,10 @@ export async function loadConfig() {
 
   const config = { ...DEFAULTS, ...raw };
   config.repos = parseRepos(config.repos);
+  // 両方に居たら有効（repos）を勝たせる。二重に数えないため無効側から落とす
+  config.disabledRepos = parseRepos(config.disabledRepos).filter(
+    (repo) => !config.repos.some((enabled) => enabled.nameWithOwner === repo.nameWithOwner)
+  );
   return config;
 }
 
