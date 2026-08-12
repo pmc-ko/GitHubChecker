@@ -5,3 +5,6 @@ dist/
 Thumbs.db
 .idea/
 .vscode/
+
+# 監視対象やポートは環境ごとに違うので追跡しない（config.example.json をコピーして使う）
+config.json

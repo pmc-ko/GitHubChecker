@@ -1,7 +1,9 @@
 # PR Monitor (GitHubChecker)
 
-指定したリポジトリのオープン PR について、**最新コミットの Actions の結果**と
-**レビュー結果のサマリ**を1画面で監視するローカル Web ダッシュボード。
+[![CI](https://github.com/pmc-ko/GitHubChecker/actions/workflows/ci.yml/badge.svg)](https://github.com/pmc-ko/GitHubChecker/actions/workflows/ci.yml)
+
+指定したリポジトリのオープン PR と Issue について、**最新コミットの Actions の結果**・
+**レビュー結果のサマリ**・**Issue との紐づき**を1画面で監視するローカル Web ダッシュボード。
 
 - ダッシュボード本体は依存パッケージ **ゼロ**（Node 20+ の標準機能だけ）。`npm install` は不要。
   デスクトップアプリとして使いたいときだけ Electron を入れる（後述）。
@@ -62,6 +64,13 @@ npm run app:icon     # electron/icon.png と icon.ico を描き直す
 ```
 
 ## 設定 (`config.json`)
+
+`config.json` は**環境ごとの設定なので git 管理外**。`config.example.json` をコピーして作る
+（無くても既定値で起動し、監視リポジトリは画面から追加できる）。
+
+```sh
+cp config.example.json config.json
+```
 
 保存すると**次の取得時に反映**される（サーバ再起動は不要）。
 
@@ -183,8 +192,8 @@ PR も母数に入れるため、ここでは表示している件数と一致�
 npm test                              # GitHub を叩かないテスト（固定データ + DOM スタブ）。CI もこれ
 npm run dump                          # 整形後の JSON をそのまま出力
 npm run dump -- --stats               # 集計だけ
-npm run dump -- --repo Dealer --pr 449   # 特定 PR の内訳（判定の理由を追うとき）
-npm run dump -- --repo Dealer --issue 488   # 特定 Issue の内訳
+npm run dump -- --repo myrepo --pr 123   # 特定 PR の内訳（判定の理由を追うとき）
+npm run dump -- --repo myrepo --issue 45  # 特定 Issue の内訳
 npm run dump -- --stats               # 集計 + マイルストンの進捗
 npm run smoke                         # 起動中のサーバに繋いで描画が通るか検証
 ```
