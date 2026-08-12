@@ -11,7 +11,7 @@
 //   npm run app            起動
 //   npm run app:package    配布用フォルダを作る（@electron/packager を都度取得）
 
-import { app, BrowserWindow, Menu, Notification, Tray, dialog, nativeImage, shell } from 'electron';
+import { app, BrowserWindow, Menu, Notification, Tray, dialog, nativeImage, screen, shell } from 'electron';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -60,14 +60,45 @@ const log = (message) => console.log(`[app] ${message}`);
 
 /* ---------------- ウィンドウ ---------------- */
 
+/**
+ * 前回のウィンドウ位置・大きさ。
+ * **画面構成が変わっていると保存値が画面外を指す**ことがある（モニタを外した / 並びを変えた）。
+ * その場合ウィンドウが見えないだけで原因が分からないので、必ず今つながっている画面と
+ * 重なっているか確かめ、外れていたら既定値に戻す。
+ */
 async function loadBounds() {
+  const primary = screen.getPrimaryDisplay().workArea;
+  const fallback = {
+    width: Math.min(1440, primary.width),
+    height: Math.min(920, primary.height),
+  };
+
+  let saved;
   try {
-    const saved = JSON.parse(await readFile(BOUNDS_PATH, 'utf8'));
-    if (Number.isFinite(saved.width) && Number.isFinite(saved.height)) return saved;
+    saved = JSON.parse(await readFile(BOUNDS_PATH, 'utf8'));
   } catch {
-    /* 初回や壊れていたときは既定値 */
+    return fallback; // 初回や壊れていたとき
   }
-  return { width: 1440, height: 920 };
+  if (!Number.isFinite(saved.width) || !Number.isFinite(saved.height)) return fallback;
+
+  const size = {
+    width: Math.max(600, Math.round(saved.width)),
+    height: Math.max(400, Math.round(saved.height)),
+  };
+  if (!Number.isFinite(saved.x) || !Number.isFinite(saved.y)) return size; // 位置なし = OS 任せ
+
+  // どこかの画面と十分に重なっていれば位置も復元する（タイトルバーが掴める程度＝120x40）
+  const visible = screen.getAllDisplays().some((display) => {
+    const area = display.workArea;
+    const overlapX = Math.min(saved.x + size.width, area.x + area.width) - Math.max(saved.x, area.x);
+    const overlapY = Math.min(saved.y + size.height, area.y + area.height) - Math.max(saved.y, area.y);
+    return overlapX >= 120 && overlapY >= 40;
+  });
+  if (!visible) {
+    log(`前回のウィンドウ位置 (${saved.x}, ${saved.y}) は今の画面構成では見えないので既定位置にします`);
+    return size;
+  }
+  return { ...size, x: Math.round(saved.x), y: Math.round(saved.y) };
 }
 
 async function saveBounds() {

@@ -58,6 +58,9 @@ PR 監視ダッシュボード。**使いながら口頭で改修指示が飛ん
 | 詳細の中身を足す | `public/app.js` | `renderDetails()` |
 | 絞り込み条件を足す | `public/app.js` | `state.filters` → `applyFilters()` → `index.html` にUI |
 | レイアウト・色 | `public/style.css` | 上部の `:root` トークン優先 |
+| 低背/横長画面での詰め方 | `public/style.css` | `@media (max-height: 860px)` と `@media (min-width: 1800px)` |
+| 一覧の高さ（列のスクロール範囲） | `public/app.js` | `fitBoardHeight()` が実測して `--cell-max` に入れる |
+| パネルの開閉を覚える対象 | `public/app.js` | `PANELS` と `restorePanels()`（保存は `pr-monitor-prefs`） |
 | API 経路・キャッシュ | `src/server.mjs` | `getDashboard()` |
 | テストの前提データ | `test/fixture.mjs` | GraphQL と同じ形。クエリを変えたらここも合わせる |
 | DOM スタブ（新しい DOM API を使ったとき） | `test/dom-stub.mjs` | `npm test` と `npm run smoke` が共有 |
@@ -94,7 +97,13 @@ npm run app                         # 見た目を変えたら実アプリでも
   `src/server.mjs` の `mergeableMemo` が同一 HEAD の確定値を覚えて埋め戻す。ここを消すと
   コンフリクト件数が取得ごとにブレる。
 - チェックは**最新コミットに紐づくものだけ**を見る。Draft で workflow が動かない設定なら「CIなし」。
-- 表示（カンバン/リスト・軸）は `localStorage` の `pr-monitor-prefs`、絞り込みは `pr-monitor-filters`、
+- **2560×720 のウルトラワイド全画面が主用途**。縦を食う変更（行を増やす・余白を足す）をするときは
+  低背でも成立するか確かめる。パネルは畳める状態を保ち、開閉は覚える。
+- 一覧の高さは CSS の固定値ではなく `fitBoardHeight()` の実測値（`--cell-max`）。パネルの開閉や
+  ウィンドウのリサイズで測り直す。測れない環境（DOM スタブ）では CSS の既定値に落ちる。
+- Electron のウィンドウ位置は**今つながっている画面と重なっているか検証してから復元**する
+  （モニタ構成が変わると画面外に開いて「起動しない」ように見える。`loadBounds()`）。
+- 表示（カンバン/リスト・軸・パネルの開閉）は `localStorage` の `pr-monitor-prefs`、絞り込みは `pr-monitor-filters`、
   テーマは `pr-monitor-theme` に保存している。壊れた値は無視して初期値に戻す作りにしてある。
 - `pr-monitor.cmd` は二重起動しない。ポートが埋まっていたら `/api/ping` で自分か判定し、
   自分ならブラウザを開いて exit 0（`.cmd` が pause しない）、別アプリなら exit 1。

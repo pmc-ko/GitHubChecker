@@ -29,6 +29,15 @@ export function createElement(tag) {
         return node.className.split(' ').includes(name);
       },
     },
+    // レイアウトは持たないので 0 を返す（app.js 側は数値が取れないときは CSS 任せにする）
+    getBoundingClientRect() {
+      return { top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 };
+    },
+    style: {
+      setProperty(name, value) {
+        node.attributes[`style:${name}`] = value;
+      },
+    },
     setAttribute(name, value) {
       node.attributes[name] = value;
       if (name === 'value') node.value = value;

@@ -1347,6 +1347,19 @@ function renderBoard(pullRequests) {
 
   dom.list.className = 'board-wrap';
   dom.list.replaceChildren(grid);
+  fitBoardHeight(grid);
+}
+
+/**
+ * 1段カンバンの列に「画面の残り高さ」を渡す。
+ * 上にあるもの（KPI・絞り込み・進捗パネル・軸）は開閉で高さが変わるので、
+ * CSS の固定値ではなく実測した位置から出す。2560×720 のような低背の画面で効く。
+ */
+function fitBoardHeight(grid) {
+  if (grid.dataset.rowhead !== 'false') return; // 行見出しがある場合は列ごとにスクロールさせない
+  const top = grid.getBoundingClientRect?.().top;
+  if (!Number.isFinite(top)) return; // 未レイアウト（テストの DOM スタブ等）は CSS の既定値に任せる
+  grid.style.setProperty('--cell-max', `${Math.max(160, Math.round((globalThis.innerHeight ?? 0) - top - 16))}px`);
 }
 
 /**
@@ -1707,11 +1720,35 @@ function saveFilters() {
   }
 }
 
+/** 開閉を覚えるパネル。低背の画面では場所を食うので、畳んだ状態を保持できるようにする */
+const PANELS = ['progressPanel', 'repoPanel', 'settingsPanel'];
+
 function savePrefs() {
   try {
-    localStorage.setItem(PREFS_KEY, JSON.stringify({ view: state.view, pivot: state.pivot }));
+    const panels = Object.fromEntries(PANELS.map((id) => [id, Boolean(dom[id]?.open)]));
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ view: state.view, pivot: state.pivot, panels }));
   } catch {
     /* noop */
+  }
+}
+
+/**
+ * パネルの開閉を復元する。保存が無いときは画面の高さで決める
+ * （2560×720 のような低背では進捗を畳んで一覧に高さを回す）。
+ */
+function restorePanels(saved = {}) {
+  const shortScreen = (globalThis.innerHeight ?? 1000) < 900;
+  for (const id of PANELS) {
+    const node = dom[id];
+    if (!node) continue;
+    const remembered = saved[id];
+    node.open = typeof remembered === 'boolean' ? remembered : id === 'progressPanel' && !shortScreen;
+    node.addEventListener('toggle', () => {
+      savePrefs();
+      // 開閉で一覧に使える高さが変わる
+      const grid = dom.list.querySelector?.('.pivot');
+      if (grid) fitBoardHeight(grid);
+    });
   }
 }
 
@@ -1741,8 +1778,9 @@ function restorePreferences() {
     if (VIEWS.some((v) => v.key === prefs.view)) state.view = prefs.view;
     if (prefs.pivot && DIMENSIONS.some((d) => d.key === prefs.pivot.cols)) state.pivot.cols = prefs.pivot.cols;
     if (prefs.pivot && DIMENSIONS.some((d) => d.key === prefs.pivot.rows)) state.pivot.rows = prefs.pivot.rows;
+    restorePanels(prefs.panels);
   } catch {
-    /* noop */
+    restorePanels();
   }
   dom.search.value = state.filters.search;
   dom.mineOnly.checked = state.filters.mineOnly;
@@ -1846,6 +1884,11 @@ dom.repoReset.addEventListener('click', () => {
   state.repoDisabledDraft = null;
   state.repoStatus = '';
   render();
+});
+// 画面サイズが変わると「残り高さ」も変わるので測り直す（ウルトラワイドでの分割/最大化など）
+globalThis.addEventListener?.('resize', () => {
+  const grid = dom.list.querySelector?.('.pivot');
+  if (grid) fitBoardHeight(grid);
 });
 document.addEventListener('keydown', (event) => {
   if (event.target.matches?.('input, select, textarea')) return;

@@ -62,6 +62,9 @@
       <label class="axis">行 <select id="rowDim" class="control" aria-label="行の軸"></select></label>
     </section>
 
+    <main id="list" class="list" aria-live="polite"></main>
+
+    <!-- 設定系は一覧の下（普段は畳んでおく場所）。上は KPI → 絞り込み → 進捗 → 軸 → 一覧 の順 -->
     <details class="panel" id="repoPanel">
       <summary id="repoSummary">監視リポジトリ</summary>
       <div class="panel-body">
@@ -95,11 +98,9 @@
       </div>
     </details>
 
-    <main id="list" class="list" aria-live="polite"></main>
-
     <footer class="footer">
       <span id="footerInfo"></span>
-      <span class="footer-hint">r: 更新 / カード・行クリック: 詳細 / 設定は config.json（画面からも編集可）</span>
+      <span class="footer-hint">r: 更新 / カード・行クリック: 詳細 / 設定は下の「監視リポジトリ」「取得の設定」から</span>
     </footer>
 
     <script src="/app.js" type="module"></script>

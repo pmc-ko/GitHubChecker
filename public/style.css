@@ -1218,9 +1218,10 @@ a:hover {
 .pivot-cell > * {
   flex: 0 0 auto;
 }
-/* 1段カンバン（行の軸=なし）では列ごとにスクロールさせ、列見出しを常に見えるようにする */
+/* 1段カンバン（行の軸=なし）では列ごとにスクロールさせ、列見出しを常に見えるようにする。
+   高さは JS が実測した残り（--cell-max）を使う。測れないときだけ控えめな既定値 */
 .pivot[data-rowhead='false'] .pivot-cell {
-  max-height: calc(100vh - 300px);
+  max-height: var(--cell-max, calc(100dvh - 300px));
   overflow-y: auto;
 }
 
@@ -1418,6 +1419,84 @@ a:hover {
     flex-wrap: wrap;
     gap: 8px;
     align-items: center;
+  }
+}
+
+/* ---------- 低背の画面（ウルトラワイドを全画面にしたとき等） ----------
+   2560×720 のような「横に広くて縦が無い」使い方が主用途なので、
+   縦の余白と文字を詰めて、一覧に高さを回す。横方向は grid の auto-fit に任せる。 */
+
+@media (max-height: 860px) {
+  body {
+    padding-bottom: 16px;
+  }
+  .topbar {
+    padding: 8px 0 6px;
+  }
+  .kpis {
+    gap: 8px;
+    margin: 8px 0;
+  }
+  /* KPI は「ラベル / 数値 / 内訳」を1行に並べて高さを半分にする */
+  .kpi {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    padding: 5px 10px;
+  }
+  .kpi-value {
+    margin: 0;
+    font-size: 19px;
+  }
+  .kpi-sub {
+    margin-left: auto;
+    text-align: right;
+  }
+  .filters {
+    gap: 6px 14px;
+    margin-bottom: 8px;
+  }
+  .panel {
+    margin-bottom: 8px;
+  }
+  .panel > summary {
+    padding: 4px 12px;
+  }
+  .progress-grid {
+    gap: 8px;
+  }
+  /* 中身は削らず、はみ出す分はカード内でスクロールさせる（ラベルが多いとき） */
+  .chart {
+    max-height: 200px;
+    padding: 7px 10px;
+    overflow-y: auto;
+  }
+  .chart-note {
+    margin: 1px 0 4px;
+  }
+  .bar-rows {
+    gap: 5px;
+  }
+  .pivot-controls {
+    margin-bottom: 6px;
+  }
+}
+
+/* ---------- 横に広い画面 ----------
+   列が間延びしすぎないよう上限を付ける（1列 480px まで）。余った幅は右に残す。
+   進捗の4枚は auto-fit なので自然に横一列に並ぶ。 */
+
+@media (min-width: 1800px) {
+  .pivot {
+    grid-template-columns: repeat(var(--cols, 4), minmax(250px, 480px));
+    justify-content: start;
+  }
+  .pivot[data-rowhead='true'] {
+    grid-template-columns: minmax(110px, 150px) repeat(var(--cols, 4), minmax(240px, 480px));
+  }
+  /* 一覧（リスト表示）は行が長くなりすぎないように読みやすい幅で止める */
+  .list > .pr {
+    max-width: 2200px;
   }
 }
 
