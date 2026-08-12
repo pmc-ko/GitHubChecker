@@ -12,7 +12,7 @@ import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize, sep } from 'node:path';
 import { spawn } from 'node:child_process';
-import { loadConfig, saveConfigPatch, parseRepos, ROOT } from './config.mjs';
+import { loadConfig, saveConfigPatch, parseRepos, ROOT, CONFIG_PATH } from './config.mjs';
 import { resolveToken } from './token.mjs';
 import { fetchRepoPullRequests, fetchRepoIssues } from './github.mjs';
 import { buildDashboard } from './summarize.mjs';
@@ -174,6 +174,8 @@ function publicSettings(config) {
     excludeAuthors: config.excludeAuthors,
     excludeDrafts: config.excludeDrafts,
     includeIssues: config.includeIssues,
+    // 画面に出す（exe 版はアプリの外に置くので、場所が分からないと手で直せない）
+    configPath: CONFIG_PATH,
   };
 }
 
@@ -333,6 +335,7 @@ const port = Number(process.env.PORT ?? config.port);
 server.listen(port, '127.0.0.1', () => {
   const url = baseUrl(port);
   console.log(`GitHub PR Checker: ${url}`);
+  console.log(`設定ファイル: ${CONFIG_PATH}`);
   console.log(`監視対象: ${config.repos.map((r) => r.nameWithOwner).join(', ') || '(config.json の repos が空)'}`);
   if (!process.argv.includes('--no-open')) openBrowser(url);
 });

@@ -1,4 +1,10 @@
 // デスクトップアプリの殻。ここは「窓・トレイ・通知・終了」だけを持つ。
+//
+// 起動と終了はアプリの実行/ウィンドウを閉じる操作に連動する。
+//   実行         → サーバを起動（既に動いていればそれを使う）してウィンドウを出す
+//   ウィンドウを閉じる → アプリ終了。自分で起動したサーバも止める（トレイに残らない）
+// 設定ファイルは exe 化するとアプリの中に隠れてしまうので、
+// **パッケージ版はユーザーのデータフォルダ**（%APPDATA%\<アプリ名>\config.json）を使う。
 // ダッシュボードの中身（通信/判定/描画）は src/ と public/ のまま、素の Node と
 // 素の ESM で動く。この殻を消してもブラウザ版（pr-monitor.cmd）は動く、という関係を保つ。
 //
@@ -6,7 +12,8 @@
 //   npm run app:package    配布用フォルダを作る（@electron/packager を都度取得）
 
 import { app, BrowserWindow, Menu, Notification, Tray, dialog, nativeImage, shell } from 'electron';
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { ensureServer, stopServer } from './server-process.mjs';
@@ -17,6 +24,14 @@ const ICON_PATH = join(HERE, 'icon.png');
 /** ウィンドウの位置・大きさの保存先（設定ではないので config.json には入れない） */
 const BOUNDS_PATH = join(app.getPath('userData'), 'window.json');
 
+/**
+ * 設定ファイルの場所。
+ * パッケージ版はアプリの中（resources\app）に置くと見つけられず書き込めないので、
+ * ユーザーのデータフォルダに置く。開発中（npm run app）はリポジトリ直下のものを共有して、
+ * ブラウザ版（pr-monitor.cmd）と同じ設定を見る。
+ */
+const CONFIG_PATH = app.isPackaged ? join(app.getPath('userData'), 'config.json') : join(HERE, '..', 'config.json');
+
 /** 通知を Windows で正しく出すための ID。変えると通知履歴が別物になる */
 app.setAppUserModelId('io.github.pmc-ko.pr-monitor');
 
@@ -24,10 +39,6 @@ let win = null;
 let tray = null;
 let server = null;
 let watcher = null;
-/** トレイに入れた時の案内は初回だけ出す */
-let hintShown = false;
-/** 「終了」を選んだかどうか。× ではトレイに隠すだけにする */
-let quitting = false;
 
 const log = (message) => console.log(`[app] ${message}`);
 
@@ -93,17 +104,8 @@ async function createWindow(url) {
     }
   });
 
-  win.on('close', (event) => {
-    if (quitting) return;
-    // 常駐させたいので × では終了しない（終了はトレイメニューから）
-    event.preventDefault();
-    saveBounds();
-    win.hide();
-    if (!hintShown) {
-      hintShown = true;
-      notify('タスクトレイで動いています', '通知は続きます。終了はトレイアイコンの右クリックから。');
-    }
-  });
+  // 閉じたら終了（トレイに残さない）。サーバの停止は will-quit でやる
+  win.on('close', () => saveBounds());
   win.on('resize', saveBounds);
   win.on('move', saveBounds);
   win.once('ready-to-show', () => win.show());
@@ -130,10 +132,13 @@ function createTray(url) {
 function updateTrayMenu(url) {
   tray?.setContextMenu(
     Menu.buildFromTemplate([
-      { label: 'ダッシュボードを開く', click: showWindow },
+      { label: 'ダッシュボードを表示', click: showWindow },
       { label: '今すぐ更新', click: () => refreshNow() },
       { type: 'separator' },
       { label: 'ブラウザで開く', click: () => shell.openExternal(url) },
+      // exe 版は設定ファイルがアプリの外にあるので、ここから開けるようにしておく
+      { label: '設定ファイルを開く', click: () => shell.openPath(CONFIG_PATH) },
+      { label: '設定フォルダを開く', click: () => shell.showItemInFolder(CONFIG_PATH) },
       { type: 'separator' },
       { label: '終了', click: () => app.quit() },
     ])
@@ -173,6 +178,25 @@ function notifyNewAction(prs) {
   notify(`対応が必要な PR が ${prs.length} 件増えました`, prs.slice(0, 4).map(line).join('\n'));
 }
 
+/**
+ * パッケージ版の初回起動で、データフォルダに config.json が無ければ雛形を置く。
+ * （中身が無いと「どこを直せばいいか」が分からないため。監視リポジトリは画面から追加もできる）
+ */
+async function seedConfigIfMissing() {
+  if (existsSync(CONFIG_PATH)) return;
+  try {
+    const example = JSON.parse(await readFile(join(HERE, '..', 'config.example.json'), 'utf8'));
+    // 監視対象は空にする（例のままだと存在しないリポジトリでエラー表示になる）。
+    // 画面の「監視リポジトリ」パネルから追加してもらう
+    const seed = { ...example, repos: [], disabledRepos: [] };
+    await mkdir(dirname(CONFIG_PATH), { recursive: true });
+    await writeFile(CONFIG_PATH, `${JSON.stringify(seed, null, 2)}\n`, 'utf8');
+    log(`設定ファイルを作成しました: ${CONFIG_PATH}`);
+  } catch (err) {
+    log(`設定ファイルの雛形を置けませんでした（既定値で動きます）: ${err.message}`);
+  }
+}
+
 /* ---------------- 起動 ---------------- */
 
 // 二重起動したら、既にいる方のウィンドウを出して終わる
@@ -183,10 +207,11 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(async () => {
     Menu.setApplicationMenu(null);
+    await seedConfigIfMissing();
     try {
-      server = await ensureServer({ onLog: log });
+      server = await ensureServer({ onLog: log, configPath: CONFIG_PATH });
     } catch (err) {
-      dialog.showErrorBox('PR Monitor を起動できません', `${err.message}\n\nconfig.json の port を確認してください。`);
+      dialog.showErrorBox('PR Monitor を起動できません', `${err.message}\n\n設定ファイル: ${CONFIG_PATH}\nport を確認してください。`);
       app.quit();
       return;
     }
@@ -200,12 +225,8 @@ if (!app.requestSingleInstanceLock()) {
     });
   });
 
-  app.on('before-quit', () => {
-    quitting = true;
-  });
-
-  // 全ウィンドウが閉じてもトレイで生き続ける（macOS と同じ挙動を Windows でも取る）
-  app.on('window-all-closed', () => {});
+  // ウィンドウを閉じたら終了する（開始/終了をアプリの実行と閉じる操作に連動させる）
+  app.on('window-all-closed', () => app.quit());
 
   app.on('will-quit', async (event) => {
     if (!server?.owned) return;

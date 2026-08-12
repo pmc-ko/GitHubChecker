@@ -1017,6 +1017,14 @@ a:hover {
   padding: 10px 12px 12px;
 }
 
+/* 設定ファイルの場所。選択してコピーできるように user-select は切らない */
+.panel-path {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
 .panel-note {
   margin: 0 0 8px;
   color: var(--text-muted);

@@ -1,6 +1,6 @@
 {
   "name": "github-pr-checker",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "GitHub PR の Actions 状況とレビュー状況を一覧監視するローカルダッシュボード",
@@ -14,7 +14,7 @@
     "stop": "node src/stop.mjs",
     "dev": "node --watch src/server.mjs",
     "dump": "node src/dump.mjs",
-    "test": "node --test test/summarize.test.mjs test/ui.test.mjs",
+    "test": "node --test test/config.test.mjs test/summarize.test.mjs test/ui.test.mjs",
     "smoke": "node test/smoke.mjs",
     "app": "electron .",
     "app:icon": "node electron/make-icon.mjs",

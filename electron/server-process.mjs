@@ -13,9 +13,11 @@ const SERVER_PATH = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', '
 
 /**
  * サーバが応答する状態にして、その URL を返す。
+ * configPath を渡すと、サーバ側もその設定ファイルを読み書きする（exe 版はアプリの外を指す）。
  * @returns {Promise<{url: string, port: number, owned: boolean, child: import('node:child_process').ChildProcess|null}>}
  */
-export async function ensureServer({ onLog = () => {} } = {}) {
+export async function ensureServer({ onLog = () => {}, configPath = null } = {}) {
+  if (configPath) process.env.PR_MONITOR_CONFIG = configPath; // 自分の loadConfig にも効かせる
   const config = await loadConfig();
   const port = Number(process.env.PORT ?? config.port);
   const url = baseUrl(port);
@@ -28,7 +30,7 @@ export async function ensureServer({ onLog = () => {} } = {}) {
   onLog(`サーバを起動します: ${url}`);
   const child = spawn(process.execPath, [SERVER_PATH, '--no-open'], {
     // ELECTRON_RUN_AS_NODE=1 で electron.exe を素の Node として使う
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', ...(configPath ? { PR_MONITOR_CONFIG: configPath } : {}) },
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   });

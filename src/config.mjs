@@ -1,13 +1,17 @@
 // 設定ファイルの読み込み。
 // リクエストごとに読み直すので、config.json を編集したらサーバ再起動なしで反映される。
 // 設定項目を増やしたいときは DEFAULTS にキーを足して README の表も更新する。
+//
+// 置き場所は既定でリポジトリ直下の config.json。
+// **環境変数 PR_MONITOR_CONFIG があればそちらを使う**（exe 化したデスクトップアプリは
+// アプリの中に書き込めない/見つけられないので、ユーザーのデータフォルダを指す）。
 
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const CONFIG_PATH = join(ROOT, 'config.json');
+export const CONFIG_PATH = process.env.PR_MONITOR_CONFIG || join(ROOT, 'config.json');
 
 const DEFAULTS = {
   /** ダッシュボードを配信するポート */
@@ -70,6 +74,7 @@ export async function saveConfigPatch(patch) {
     if (err.code !== 'ENOENT') throw new Error(`config.json の読み込みに失敗しました: ${err.message}`);
   }
   const next = { ...raw, ...patch };
+  await mkdir(dirname(CONFIG_PATH), { recursive: true }); // 初回（データフォルダ側）でも書けるように
   await writeFile(CONFIG_PATH, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
   return loadConfig();
 }

@@ -39,7 +39,8 @@ PR 監視ダッシュボード。**使いながら口頭で改修指示が飛ん
 | Issue / マイルストンの取得項目 | `src/github.mjs` | `ISSUE_QUERY`（PR 側の紐づきは `closingIssuesReferences`） |
 | Issue と PR の紐づけ方 | `src/summarize.mjs` | `buildDashboard()` の `linked`（紐づいた Issue は一覧に出さない） |
 | Issue 1件の見え方 | `src/summarize.mjs` の `summarizeIssue()` + `public/app.js` の `renderIssueDetails()` | バケットは `issue` 固定 |
-| デスクトップアプリの窓・トレイ・終了 | `electron/main.mjs` | — |
+| デスクトップアプリの窓・トレイ・終了 | `electron/main.mjs` | 閉じたら終了（`window-all-closed` → `app.quit()` → `will-quit` でサーバ停止） |
+| 設定ファイルの置き場所 | `src/config.mjs` の `CONFIG_PATH` | 既定はリポジトリ直下。`PR_MONITOR_CONFIG` で差し替え（exe 版は `electron/main.mjs` が userData を渡す） |
 | 通知を出す条件・文面 | `electron/watch.mjs` | `WATCHED_BUCKET` と `notifyNewAction()`（`main.mjs`） |
 | アプリからのサーバ起動・停止 | `electron/server-process.mjs` | `ensureServer()` / `stopServer()` |
 | カード左端の色（深刻さ） | `public/app.js` | `cardTone()` |
@@ -115,6 +116,12 @@ npm run app                         # 見た目を変えたら実アプリでも
 - ラベル軸は**多値**（1件が複数の列に出る）。カード総数が件数を超えるのは仕様。`groupsOf()` を通すこと。
 - `.pivot-cell > * { flex: 0 0 auto }` を消すと、件数の多い列でカードが flex-shrink で潰れる（Issue 列で顕在化）。
 - Electron 版は **同梱 Node（`ELECTRON_RUN_AS_NODE`）で `src/server.mjs` を起動**する。既に動いている
-  サーバがあればそれを使い、終了時にも止めない（`owned` フラグ）。`×` はトレイに隠すだけ。
+  サーバがあればそれを使い、終了時にも止めない（`owned` フラグ）。
+- **exe 化すると `resources\app` の中は「見えない・書けない」前提**で考える。設定は
+  `app.getPath('userData')`（`%APPDATA%\github-pr-checker\config.json`）に置き、`PR_MONITOR_CONFIG`
+  でサーバ側に渡している。初回起動時は `config.example.json` から `repos: []` の雛形を作る
+  （例のままだと存在しないリポジトリでエラー表示になる）。パスは画面とトレイから辿れるようにしてある。
+- **ウィンドウを閉じたら終了**（トレイに残らない）。自分で起動したサーバもそこで止まる。
+  常駐させたいと言われたら `window-all-closed` と `close` の扱いを戻す。
 - 通知は `electron/watch.mjs` が `/api/dashboard?refresh=1` を定期的に叩いて「対応が必要」の増加を見ている。
   画面を隠していても更新が続くのはこれのおかげ（ブラウザ側の自動更新は非表示タブでは止まる）。

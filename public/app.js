@@ -216,7 +216,7 @@ for (const id of [
   'banner', 'kpis', 'bucketFilter', 'repoFilter', 'search', 'mineOnly', 'hideBots', 'hideDrafts', 'hideIssues',
   'progressPanel', 'progressSummary', 'chartLink', 'chartMilestone', 'chartLabel', 'chartApi',
   'expandAll', 'list', 'footerInfo', 'pivotControls', 'colDim', 'rowDim', 'swapDims',
-  'repoPanel', 'repoSummary', 'repoToggles', 'repoText', 'repoSave', 'repoReset', 'repoStatus',
+  'repoPanel', 'repoSummary', 'repoToggles', 'repoText', 'repoSave', 'repoReset', 'repoStatus', 'configPath',
 ]) {
   dom[id] = document.getElementById(id);
 }
@@ -770,6 +770,10 @@ function renderRepoEditor() {
   // 入力中の内容を上書きしない
   if (state.repoDraft === null) dom.repoText.value = candidates.join('\n');
   dom.repoStatus.textContent = state.repoStatus;
+
+  // 設定ファイルの場所を出す（アプリ版はアプリの外にあるので、ここが分からないと手で直せない）
+  const path = state.data?.settings?.configPath;
+  dom.configPath.textContent = path ? `設定ファイル: ${path}` : '';
 }
 
 function applyFilters(pullRequests) {
