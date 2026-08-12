@@ -17,6 +17,7 @@
         <span class="viewer" id="viewer"></span>
       </div>
       <div class="topbar-actions">
+        <div class="segmented" id="viewToggle" role="group" aria-label="表示の切り替え"></div>
         <span class="fetched" id="fetched" title="最終取得時刻"></span>
         <button type="button" id="refresh" class="button" title="今すぐ取り直す (r)">更新</button>
         <label class="toggle" title="設定の refreshSeconds ごとに取り直す">
@@ -43,11 +44,35 @@
       </div>
     </section>
 
+    <section class="pivot-controls" id="pivotControls" aria-label="カンバンの軸">
+      <span class="pivot-controls-label">軸</span>
+      <label class="axis">列 <select id="colDim" class="control" aria-label="列の軸"></select></label>
+      <button type="button" id="swapDims" class="button button-icon" title="行と列を入れ替える" aria-label="行と列を入れ替える">
+        ⇄
+      </button>
+      <label class="axis">行 <select id="rowDim" class="control" aria-label="行の軸"></select></label>
+    </section>
+
+    <details class="panel" id="repoPanel">
+      <summary id="repoSummary">監視リポジトリ</summary>
+      <div class="panel-body">
+        <p class="panel-note">
+          1行に1つ。<code>owner/name</code> か GitHub の URL。保存すると <code>config.json</code> が書き換わり、すぐ再取得します。
+        </p>
+        <textarea id="repoText" class="control panel-text" rows="8" spellcheck="false" aria-label="監視リポジトリ"></textarea>
+        <div class="panel-actions">
+          <button type="button" id="repoSave" class="button">保存して再取得</button>
+          <button type="button" id="repoReset" class="button button-quiet">元に戻す</button>
+          <span class="panel-status" id="repoStatus"></span>
+        </div>
+      </div>
+    </details>
+
     <main id="list" class="list" aria-live="polite"></main>
 
     <footer class="footer">
       <span id="footerInfo"></span>
-      <span class="footer-hint">r: 更新 / 行クリック: 詳細 / 設定は config.json（保存すれば次の取得で反映）</span>
+      <span class="footer-hint">r: 更新 / カード・行クリック: 詳細 / 設定は config.json（画面からも編集可）</span>
     </footer>
 
     <script src="/app.js" type="module"></script>

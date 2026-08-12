@@ -19,8 +19,14 @@ PR 監視ダッシュボード。**使いながら口頭で改修指示が飛ん
 
 | 言われそうなこと | 触るファイル | 触る場所 |
 | --- | --- | --- |
-| 監視リポジトリを増減 | `config.json` | `repos`（再起動不要） |
+| 監視リポジトリを増減 | 画面の「監視リポジトリ」パネル or `config.json` | `repos`（再起動不要） |
 | 設定項目を増やす | `src/config.mjs` | `DEFAULTS` → README の表も更新 |
+| カンバンの行/列に選べる軸を増やす | `public/app.js` | `DIMENSIONS` に1エントリ（UIの選択肢は自動で増える） |
+| 軸の並び順・0件グループの扱い | `public/app.js` | 各 DIMENSION の `order` / `alwaysShow`、`groupBy()` |
+| カードの見た目・情報量 | `public/app.js` | `renderCard()` |
+| カード左端の色（深刻さ） | `public/app.js` | `cardTone()` |
+| ピボットのレイアウト | `public/style.css` | `.pivot` / `.pivot-cell` / `.pivot-colhead` |
+| 画面から設定を書き換えたい | `src/server.mjs` + `src/config.mjs` | `POST /api/config/repos` と `saveConfigPatch()` |
 | GitHub から取る項目を増やす | `src/github.mjs` | `PR_QUERY` の GraphQL |
 | 「対応が必要」の条件を変える | `src/summarize.mjs` | `classify()` |
 | CI 全体状態の決め方を変える | `src/summarize.mjs` | `rollUpChecks()` |
@@ -28,8 +34,8 @@ PR 監視ダッシュボード。**使いながら口頭で改修指示が飛ん
 | レビュー状態の判定を変える | `src/summarize.mjs` | `summarizeReviews()` |
 | KPI タイルの内容を変える | `public/app.js` | `renderKpis()` の `tiles` |
 | バッジの文言・記号・色 | `public/app.js` | `CI_STATE` / `REVIEW_STATE` / `CHECK_ICON` / `REVIEW_ITEM` |
-| グループ分けと並び順 | `public/app.js` の `BUCKETS` + `src/summarize.mjs` の `classify()` | 両方の `key` を一致させる |
-| 一覧に列・情報を足す | `public/app.js` | `renderPr()` |
+| バケット（状態）の定義と並び順 | `public/app.js` の `BUCKETS`/`BUCKET_ORDER` + `src/summarize.mjs` の `classify()` | 両方の `key` を一致させる |
+| リストの行に情報を足す | `public/app.js` | `renderPr()` |
 | 詳細の中身を足す | `public/app.js` | `renderDetails()` |
 | 絞り込み条件を足す | `public/app.js` | `state.filters` → `applyFilters()` → `index.html` にUI |
 | レイアウト・色 | `public/style.css` | 上部の `:root` トークン優先 |
@@ -55,3 +61,9 @@ npm run dump -- --repo <名前> --pr <番号>   # 判定を変えたら実デー
   `src/server.mjs` の `mergeableMemo` が同一 HEAD の確定値を覚えて埋め戻す。ここを消すと
   コンフリクト件数が取得ごとにブレる。
 - チェックは**最新コミットに紐づくものだけ**を見る。Draft で workflow が動かない設定なら「CIなし」。
+- 表示（カンバン/リスト・軸）は `localStorage` の `pr-monitor-prefs`、絞り込みは `pr-monitor-filters`、
+  テーマは `pr-monitor-theme` に保存している。壊れた値は無視して初期値に戻す作りにしてある。
+- `pr-monitor.cmd` は二重起動しない。ポートが埋まっていたら `/api/ping` で自分か判定し、
+  自分ならブラウザを開いて exit 0（`.cmd` が pause しない）、別アプリなら exit 1。
+- リポジトリの書き込み API は 127.0.0.1 待ち受け + Origin チェック + `parseRepos()` の
+  文字種検証で守っている。設定を書き換える口を増やすときは同じ3点を踏襲する。

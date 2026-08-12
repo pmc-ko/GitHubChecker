@@ -1,15 +1,17 @@
 // ローカル HTTP サーバ。
-//   GET /               → public/index.html（ダッシュボード本体）
-//   GET /api/dashboard  → PR一覧と集計の JSON（画面はこれをポーリングするだけ）
-//   GET /api/dashboard?refresh=1 → キャッシュを無視して取り直す
+//   GET  /                       → public/index.html（ダッシュボード本体）
+//   GET  /api/dashboard          → PR一覧と集計の JSON（画面はこれをポーリングするだけ）
+//   GET  /api/dashboard?refresh=1 → キャッシュを無視して取り直す
+//   POST /api/config/repos       → 監視リポジトリを config.json に保存（画面から編集用）
 //
-// 依存パッケージなし。`npm run dev` なら --watch でソース変更時に自動再起動する。
+// 127.0.0.1 のみで待ち受ける。依存パッケージなし。
+// `npm run dev` なら --watch でソース変更時に自動再起動する。
 
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize, sep } from 'node:path';
 import { spawn } from 'node:child_process';
-import { loadConfig, ROOT } from './config.mjs';
+import { loadConfig, saveConfigPatch, parseRepos, ROOT } from './config.mjs';
 import { resolveToken } from './token.mjs';
 import { fetchRepoPullRequests } from './github.mjs';
 import { buildDashboard } from './summarize.mjs';
@@ -158,8 +160,56 @@ async function serveStatic(url, res) {
   }
 }
 
+function sendJson(res, status, payload) {
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.end(JSON.stringify(payload));
+}
+
+async function readJsonBody(req, { limitBytes = 64 * 1024 } = {}) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > limitBytes) throw new Error('リクエストが大きすぎます');
+    chunks.push(chunk);
+  }
+  const text = Buffer.concat(chunks).toString('utf8');
+  return text ? JSON.parse(text) : {};
+}
+
+/**
+ * ローカル以外からの書き込みを弾く。
+ * サーバは 127.0.0.1 のみで待ち受けているが、他サイトのページから
+ * localhost に POST される（DNS リバインディング等）のを避けるため Origin も見る。
+ */
+function isLocalRequest(req) {
+  const origin = req.headers.origin;
+  if (!origin) return true; // 同一オリジンの fetch では付かない場合がある
+  return /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin);
+}
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
+
+  // 二重起動の判定用（GitHub API は叩かない）
+  if (url.pathname === '/api/ping') return sendJson(res, 200, { app: 'pr-monitor' });
+
+  if (url.pathname === '/api/config/repos') {
+    if (req.method !== 'POST') return sendJson(res, 405, { error: 'POST を使ってください' });
+    if (!isLocalRequest(req)) return sendJson(res, 403, { error: 'ローカルからのみ変更できます' });
+    try {
+      const body = await readJsonBody(req);
+      if (!Array.isArray(body.repos)) throw new Error('repos は配列で送ってください');
+      if (body.repos.length > 100) throw new Error('リポジトリは 100 個までにしてください');
+      const repos = parseRepos(body.repos).map((repo) => repo.nameWithOwner);
+      await saveConfigPatch({ repos });
+      cache = null; // 次の取得で必ず取り直す
+      console.log(`監視対象を更新: ${repos.join(', ') || '(なし)'}`);
+      return sendJson(res, 200, { repos });
+    } catch (err) {
+      return sendJson(res, 400, { error: err.message });
+    }
+  }
 
   if (url.pathname === '/api/dashboard') {
     try {
@@ -187,13 +237,32 @@ server.listen(port, '127.0.0.1', () => {
   if (!process.argv.includes('--no-open')) openBrowser(url);
 });
 
-server.on('error', (err) => {
-  if (err.code === 'EADDRINUSE') {
-    console.error(`ポート ${port} は使用中です。config.json の port を変えるか、既に起動しているサーバを終了してください。`);
-    process.exit(1);
+server.on('error', async (err) => {
+  if (err.code !== 'EADDRINUSE') throw err;
+
+  // 既に起動している場合は二重起動せず、そのダッシュボードをブラウザで開くだけにする
+  const url = `http://127.0.0.1:${port}/`;
+  if (await isOurServer(url)) {
+    console.log(`既に起動しています。ブラウザで開きます: ${url}`);
+    if (!process.argv.includes('--no-open')) openBrowser(url);
+    process.exit(0);
   }
-  throw err;
+
+  console.error(`ポート ${port} は別のアプリが使用中です。config.json の port を変えてください。`);
+  process.exit(1);
 });
+
+/** そのポートで動いているのが自分（PR Monitor）かどうかを確かめる */
+async function isOurServer(url) {
+  try {
+    const response = await fetch(new URL('/api/ping', url), { signal: AbortSignal.timeout(3000) });
+    if (!response.ok) return false;
+    const payload = await response.json();
+    return payload.app === 'pr-monitor';
+  } catch {
+    return false;
+  }
+}
 
 function openBrowser(url) {
   try {

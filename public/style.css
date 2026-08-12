@@ -8,7 +8,8 @@
   color-scheme: light;
 
   --surface-1: #fcfcfb; /* カード面 */
-  --surface-2: #f3f3f0; /* 面の中の面（詳細行など） */
+  --surface-2: #f3f3f0; /* カンバンの列の帯 */
+  --surface-3: #ecebe6; /* カード/行を開いたときの詳細面 */
   --page: #f9f9f7;
   --text-primary: #0b0b0b;
   --text-secondary: #52514e;
@@ -34,6 +35,7 @@
     color-scheme: dark;
     --surface-1: #1a1a19;
     --surface-2: #232322;
+    --surface-3: #2c2c2a;
     --page: #0d0d0d;
     --text-primary: #ffffff;
     --text-secondary: #c3c2b7;
@@ -48,6 +50,7 @@
   color-scheme: dark;
   --surface-1: #1a1a19;
   --surface-2: #232322;
+  --surface-3: #2c2c2a;
   --page: #0d0d0d;
   --text-primary: #ffffff;
   --text-secondary: #c3c2b7;
@@ -503,11 +506,11 @@ a:hover {
 
 .pr-details {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
   gap: 16px;
   padding: 10px 14px 14px;
   border-top: 1px solid var(--border);
-  background: var(--surface-2);
+  background: var(--surface-3);
 }
 
 .detail-title {
@@ -620,6 +623,342 @@ a:hover {
   border-top: 1px solid var(--border);
   color: var(--text-muted);
   font-size: 11px;
+}
+
+/* ---------- 表示切り替え（リスト / カンバン） ---------- */
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.segment {
+  padding: 4px 10px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.segment:last-child {
+  border-right: 0;
+}
+.segment[aria-pressed='true'] {
+  background: var(--surface-3);
+  color: var(--text-primary);
+  font-weight: 620;
+}
+
+/* ---------- ピボットの軸コントロール ---------- */
+
+.pivot-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.pivot-controls[hidden] {
+  display: none;
+}
+
+.pivot-controls-label {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+}
+
+.axis {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+/* ---------- 設定パネル（監視リポジトリの編集） ---------- */
+
+.panel {
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+
+.panel > summary {
+  padding: 7px 12px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.panel[open] > summary {
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+}
+
+.panel-body {
+  padding: 10px 12px 12px;
+}
+
+.panel-note {
+  margin: 0 0 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.panel-note code {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--surface-3);
+  font-size: 11px;
+}
+
+.panel-text {
+  width: 100%;
+  max-width: 560px;
+  min-height: 120px;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.panel-status {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+/* ---------- カンバン（ピボット） ---------- */
+
+.board-wrap {
+  display: block;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.pivot {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 4), minmax(250px, 1fr));
+  gap: 8px;
+  align-items: start;
+  min-width: min-content;
+}
+.pivot[data-rowhead='true'] {
+  grid-template-columns: minmax(110px, 150px) repeat(var(--cols, 4), minmax(240px, 1fr));
+}
+
+.pivot-colhead {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-bottom: 2px solid var(--border-strong);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: var(--surface-1);
+  font-size: 12px;
+  font-weight: 620;
+}
+.pivot-colhead[data-tone='critical'] {
+  border-bottom-color: var(--critical);
+}
+.pivot-colhead[data-tone='serious'] {
+  border-bottom-color: var(--serious);
+}
+.pivot-colhead[data-tone='warning'] {
+  border-bottom-color: var(--warning);
+}
+.pivot-colhead[data-tone='good'] {
+  border-bottom-color: var(--good);
+}
+
+.pivot-colhead-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pivot-count {
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pivot-corner,
+.pivot-rowhead {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 8px;
+  background: var(--page);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.pivot-corner {
+  z-index: 3;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.pivot-rowhead {
+  align-self: stretch;
+  align-items: flex-start;
+  border-right: 2px solid var(--border-strong);
+  font-weight: 620;
+}
+
+.pivot-rowhead-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pivot-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  background: var(--surface-2);
+}
+/* 1段カンバン（行の軸=なし）では列ごとにスクロールさせ、列見出しを常に見えるようにする */
+.pivot[data-rowhead='false'] .pivot-cell {
+  max-height: calc(100vh - 300px);
+  overflow-y: auto;
+}
+
+.pivot-empty {
+  margin: 0;
+  padding: 6px 2px;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+/* ---------- カード ---------- */
+
+.card {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--idle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  overflow: hidden;
+}
+.card[data-tone='good'] {
+  border-left-color: var(--good);
+}
+.card[data-tone='warning'] {
+  border-left-color: var(--warning);
+}
+.card[data-tone='serious'] {
+  border-left-color: var(--serious);
+}
+.card[data-tone='critical'] {
+  border-left-color: var(--critical);
+}
+
+.card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 9px;
+  cursor: pointer;
+}
+.card-body:hover {
+  background: var(--surface-3);
+}
+
+.card-top,
+.card-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.card-spacer {
+  flex: 1;
+  min-width: 0;
+}
+
+.card-flag {
+  padding: 0 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text-secondary);
+}
+.card-flag[data-tone='critical'] {
+  border-color: var(--critical);
+  color: var(--text-primary);
+}
+
+.card-time {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.card-title {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 560;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+
+.card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.card-badges .badge {
+  font-size: 11px;
+}
+
+.card-author {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40%;
+}
+
+.card-diff {
+  font-variant-numeric: tabular-nums;
+}
+
+.card .avatar {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+}
+
+.card .cell-sub {
+  gap: 6px;
 }
 
 /* ---------- 狭い画面 ---------- */
